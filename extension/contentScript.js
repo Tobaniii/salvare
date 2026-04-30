@@ -114,7 +114,7 @@
     }
     if (results.length === 0) {
       console.log("Salvare could not determine best coupon");
-      return;
+      return null;
     }
     const best = results.reduce(
       (lowest, current) => current.totalCents < lowest.totalCents ? current : lowest
@@ -123,14 +123,37 @@
     console.log("Salvare best tested coupon:", best);
     applyCouponCode(best.code);
     console.log(`Salvare re-applied best coupon: ${best.code}`);
+    return best;
   }
   var scan = scanCheckoutPage();
   console.log("Salvare checkout scan:", scan);
   logPossibleCheckoutText();
-  var candidateCodes = getCandidateCodesForDomain(window.location.hostname);
-  if (candidateCodes.length > 0) {
-    findBestWorkingCoupon(candidateCodes);
-  } else {
-    console.log("Salvare found no candidate coupons for this store.");
-  }
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message.type !== "SALVARE_FIND_BEST_COUPON") {
+      return;
+    }
+    const candidateCodes = getCandidateCodesForDomain(window.location.hostname);
+    if (candidateCodes.length === 0) {
+      sendResponse({
+        success: false,
+        message: "No candidate coupons for this store."
+      });
+      return;
+    }
+    findBestWorkingCoupon(candidateCodes).then((best) => {
+      if (!best) {
+        sendResponse({
+          success: false,
+          message: "Could not determine best coupon."
+        });
+        return;
+      }
+      sendResponse({
+        success: true,
+        bestCode: best.code,
+        totalCents: best.totalCents
+      });
+    });
+    return true;
+  });
 })();

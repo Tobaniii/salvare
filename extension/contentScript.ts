@@ -173,7 +173,10 @@ async function testCouponCodes(codes: string[]): Promise<void> {
     });
   }
 }
-async function findBestWorkingCoupon(codes: string[]): Promise<void> {
+async function findBestWorkingCoupon(
+  codes: string[]
+    ): Promise<{ code: string; totalCents: number } | null> {
+
   const results: { code: string; totalCents: number }[] = [];
 
   for (const code of codes) {
@@ -193,7 +196,7 @@ async function findBestWorkingCoupon(codes: string[]): Promise<void> {
 
   if (results.length === 0) {
     console.log("Salvare could not determine best coupon");
-    return;
+    return null;
   }
 
   const best = results.reduce((lowest, current) =>
@@ -205,6 +208,8 @@ async function findBestWorkingCoupon(codes: string[]): Promise<void> {
   
   applyCouponCode(best.code);
   console.log(`Salvare re-applied best coupon: ${best.code}`);
+  
+  return best;
 }
 
 const scan = scanCheckoutPage();
@@ -212,11 +217,37 @@ const scan = scanCheckoutPage();
 console.log("Salvare checkout scan:", scan);
 logPossibleCheckoutText();
 
-const candidateCodes = getCandidateCodesForDomain(window.location.hostname);
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type !== "SALVARE_FIND_BEST_COUPON") {
+    return;
+  }
 
-if (candidateCodes.length > 0) {
-  findBestWorkingCoupon(candidateCodes);
-} else {
-  console.log("Salvare found no candidate coupons for this store.");
-}
+  const candidateCodes = getCandidateCodesForDomain(window.location.hostname);
+
+  if (candidateCodes.length === 0) {
+    sendResponse({
+      success: false,
+      message: "No candidate coupons for this store.",
+    });
+    return;
+  }
+
+  findBestWorkingCoupon(candidateCodes).then((best) => {
+    if (!best) {
+      sendResponse({
+        success: false,
+        message: "Could not determine best coupon.",
+      });
+      return;
+    }
+
+    sendResponse({
+      success: true,
+      bestCode: best.code,
+      totalCents: best.totalCents,
+    });
+  });
+
+  return true;
+});
 

@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest",
-    "build:extension": "esbuild extension/contentScript.ts --bundle --outfile=extension/contentScript.js"
+    "build:extension": "esbuild extension/contentScript.ts --bundle --outfile=extension/contentScript.js && esbuild extension/popup.ts --bundle --outfile=extension/popup.js"
   },
   "dependencies": {
     "react": "^19.2.5",
@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/chrome": "^0.1.40",
     "@types/node": "^24.12.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

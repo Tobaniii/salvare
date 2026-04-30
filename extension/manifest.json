@@ -3,8 +3,12 @@
   "name": "Salvare",
   "version": "0.1.0",
   "description": "Find the best coupon for your cart.",
-  "permissions": ["activeTab", "scripting"],
+  "permissions": ["activeTab", "scripting", "tabs"],
   "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Salvare"
+  },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
