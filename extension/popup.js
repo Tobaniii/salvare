@@ -26,9 +26,8 @@
       { type: "SALVARE_FIND_BEST_COUPON" },
       (response) => {
         if (chrome.runtime.lastError) {
-          const errorMessage = chrome.runtime.lastError.message ?? "Unknown error";
-            console.error("Salvare popup error:", errorMessage);
-            setStatus(`Could not connect to page: ${errorMessage}`);
+          console.error(chrome.runtime.lastError.message);
+          setStatus("Could not connect to page.");
           return;
         }
         if (!response?.success) {

@@ -1,11 +1,17 @@
 (() => {
-  // extension/couponCandidates.ts
-  function getCandidateCodesForDomain(domain) {
-    const couponMap = {
-      localhost: ["SAVE10", "TAKE15", "FREESHIP"],
-      "www.wonderbly.com": ["WELCOME10", "SAVE15", "FREESHIP"]
-    };
-    return couponMap[domain] ?? [];
+  // extension/storeProfiles.ts
+  var STORE_PROFILES = [
+    {
+      domain: "localhost",
+      candidateCodes: ["SAVE10", "TAKE15", "FREESHIP"]
+    },
+    {
+      domain: "www.wonderbly.com",
+      candidateCodes: ["WELCOME10", "SAVE15", "FREESHIP"]
+    }
+  ];
+  function getStoreProfileForDomain(domain) {
+    return STORE_PROFILES.find((profile) => profile.domain === domain) ?? null;
   }
 
   // extension/contentScript.ts
@@ -132,15 +138,15 @@
     if (message.type !== "SALVARE_FIND_BEST_COUPON") {
       return;
     }
-    const candidateCodes = getCandidateCodesForDomain(window.location.hostname);
-    if (candidateCodes.length === 0) {
+    const profile = getStoreProfileForDomain(window.location.hostname);
+    if (!profile) {
       sendResponse({
         success: false,
-        message: "No candidate coupons for this store."
+        message: "This store is not supported yet."
       });
       return;
     }
-    findBestWorkingCoupon(candidateCodes).then((best) => {
+    findBestWorkingCoupon(profile.candidateCodes).then((best) => {
       if (!best) {
         sendResponse({
           success: false,

@@ -1,4 +1,4 @@
-import { getCandidateCodesForDomain } from "./couponCandidates";
+import { getStoreProfileForDomain } from "./storeProfiles";
 type SalvareCheckoutScan = {
   domain: string;
   subtotalText: string | null;
@@ -222,17 +222,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return;
   }
 
-  const candidateCodes = getCandidateCodesForDomain(window.location.hostname);
+  const profile = getStoreProfileForDomain(window.location.hostname);
 
-  if (candidateCodes.length === 0) {
+  if (!profile) {
     sendResponse({
       success: false,
-      message: "No candidate coupons for this store.",
+      message: "This store is not supported yet.",
     });
     return;
   }
 
-  findBestWorkingCoupon(candidateCodes).then((best) => {
+  findBestWorkingCoupon(profile.candidateCodes).then((best) => {
     if (!best) {
       sendResponse({
         success: false,
