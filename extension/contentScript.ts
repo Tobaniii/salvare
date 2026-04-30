@@ -1,4 +1,7 @@
-import { getStoreProfileForDomain } from "./storeProfiles";
+import {
+  getStoreProfileForDomain,
+  type StoreProfile,
+} from "./storeProfiles";
 type SalvareCheckoutScan = {
   domain: string;
   subtotalText: string | null;
@@ -42,11 +45,29 @@ function findMoneyAfterLabel(labels: string[]): string | null {
   return null;
 }
 
-function findPossibleSubtotalText(): string | null {
+function extractMoneyFromElement(selector: string): string | null {
+  const element = document.querySelector(selector);
+  if (!element) return null;
+
+  const text = (element as HTMLElement).innerText ?? element.textContent ?? "";
+  const moneyMatch = text.match(/\$?\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/);
+
+  return moneyMatch?.[1] ?? null;
+}
+
+function findPossibleSubtotalText(profile?: StoreProfile | null): string | null {
+  if (profile?.selectors?.subtotal) {
+    const fromSelector = extractMoneyFromElement(profile.selectors.subtotal);
+    if (fromSelector) return fromSelector;
+  }
   return findMoneyAfterLabel(["Subtotal", "Cart subtotal", "Order subtotal"]);
 }
 
-function findPossibleTotalText(): string | null {
+function findPossibleTotalText(profile?: StoreProfile | null): string | null {
+  if (profile?.selectors?.total) {
+    const fromSelector = extractMoneyFromElement(profile.selectors.total);
+    if (fromSelector) return fromSelector;
+  }
   return findMoneyAfterLabel(["Total", "Order total", "Grand total"]);
 }
 
@@ -98,9 +119,33 @@ function findApplyButtons(): HTMLElement[] {
   });
 }
 
-function scanCheckoutPage(): SalvareCheckoutScan {
-  const subtotalText = findPossibleSubtotalText();
-  const totalText = findPossibleTotalText();
+function findCouponInputForProfile(
+  profile?: StoreProfile | null,
+): HTMLInputElement | null {
+  if (profile?.selectors?.couponInput) {
+    const candidate = document.querySelector(
+      profile.selectors.couponInput,
+    ) as HTMLInputElement | null;
+    if (candidate) return candidate;
+  }
+  return findCouponInputs()[0] ?? null;
+}
+
+function findApplyButtonForProfile(
+  profile?: StoreProfile | null,
+): HTMLElement | null {
+  if (profile?.selectors?.applyButton) {
+    const candidate = document.querySelector(
+      profile.selectors.applyButton,
+    ) as HTMLElement | null;
+    if (candidate) return candidate;
+  }
+  return findApplyButtons()[0] ?? null;
+}
+
+function scanCheckoutPage(profile?: StoreProfile | null): SalvareCheckoutScan {
+  const subtotalText = findPossibleSubtotalText(profile);
+  const totalText = findPossibleTotalText(profile);
 
   return {
     domain: window.location.hostname,
@@ -139,9 +184,12 @@ function logPossibleCheckoutText(): void {
   console.log("Salvare possible checkout text:", interestingLines.slice(0, 50));
 }
 
-function applyCouponCode(code: string): boolean {
-  const input = findCouponInputs()[0];
-  const button = findApplyButtons()[0];
+function applyCouponCode(
+  code: string,
+  profile?: StoreProfile | null,
+): boolean {
+  const input = findCouponInputForProfile(profile);
+  const button = findApplyButtonForProfile(profile);
 
   if (!input || !button) {
     console.log("Salvare could not find coupon input or apply button");
@@ -159,13 +207,16 @@ function applyCouponCode(code: string): boolean {
   console.log(`Salvare applied coupon code: ${code}`);
   return true;
 }
-async function testCouponCodes(codes: string[]): Promise<void> {
+async function testCouponCodes(
+  codes: string[],
+  profile?: StoreProfile | null,
+): Promise<void> {
   for (const code of codes) {
-    applyCouponCode(code);
+    applyCouponCode(code, profile);
 
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    const scanAfterApply = scanCheckoutPage();
+    const scanAfterApply = scanCheckoutPage(profile);
 
     console.log(`Salvare tested ${code}:`, {
       detectedTotalCents: scanAfterApply.totalCents,
@@ -174,17 +225,18 @@ async function testCouponCodes(codes: string[]): Promise<void> {
   }
 }
 async function findBestWorkingCoupon(
-  codes: string[]
-    ): Promise<{ code: string; totalCents: number } | null> {
+  codes: string[],
+  profile?: StoreProfile | null,
+): Promise<{ code: string; totalCents: number } | null> {
 
   const results: { code: string; totalCents: number }[] = [];
 
   for (const code of codes) {
-    applyCouponCode(code);
+    applyCouponCode(code, profile);
 
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    const scanAfterApply = scanCheckoutPage();
+    const scanAfterApply = scanCheckoutPage(profile);
 
     if (scanAfterApply.totalCents !== null) {
       results.push({
@@ -205,14 +257,15 @@ async function findBestWorkingCoupon(
 
   console.log("Salvare coupon test results:", results);
   console.log("Salvare best tested coupon:", best);
-  
-  applyCouponCode(best.code);
+
+  applyCouponCode(best.code, profile);
   console.log(`Salvare re-applied best coupon: ${best.code}`);
-  
+
   return best;
 }
 
-const scan = scanCheckoutPage();
+const initialProfile = getStoreProfileForDomain(window.location.hostname);
+const scan = scanCheckoutPage(initialProfile);
 
 console.log("Salvare checkout scan:", scan);
 logPossibleCheckoutText();
@@ -232,7 +285,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return;
   }
 
-  findBestWorkingCoupon(profile.candidateCodes).then((best) => {
+  findBestWorkingCoupon(profile.candidateCodes, profile).then((best) => {
     if (!best) {
       sendResponse({
         success: false,

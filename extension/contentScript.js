@@ -8,6 +8,26 @@
     {
       domain: "www.wonderbly.com",
       candidateCodes: ["WELCOME10", "SAVE15", "FREESHIP"]
+    },
+    {
+      domain: "salvare-test-store.myshopify.com",
+      candidateCodes: ["WELCOME10", "SAVE15", "FREESHIP"],
+      selectors: {
+        couponInput: "input[name='discount'], input[placeholder*='Discount'], input[aria-label*='Discount']",
+        applyButton: "button[type='submit'], button",
+        subtotal: ".total-line--subtotal .total-line__price",
+        total: "[data-checkout-payment-due-target], .payment-due__price, .total-line__price"
+      }
+    },
+    {
+      domain: "salvare-woo-test.local",
+      candidateCodes: ["WELCOME10", "TAKE20", "FREESHIP"],
+      selectors: {
+        couponInput: "input[name='coupon_code'], #coupon_code",
+        applyButton: "button[name='apply_coupon'], button[value='Apply coupon']",
+        subtotal: ".cart-subtotal .woocommerce-Price-amount",
+        total: ".order-total .woocommerce-Price-amount"
+      }
     }
   ];
   function getStoreProfileForDomain(domain) {
@@ -36,10 +56,25 @@
     }
     return null;
   }
-  function findPossibleSubtotalText() {
+  function extractMoneyFromElement(selector) {
+    const element = document.querySelector(selector);
+    if (!element) return null;
+    const text = element.innerText ?? element.textContent ?? "";
+    const moneyMatch = text.match(/\$?\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/);
+    return moneyMatch?.[1] ?? null;
+  }
+  function findPossibleSubtotalText(profile) {
+    if (profile?.selectors?.subtotal) {
+      const fromSelector = extractMoneyFromElement(profile.selectors.subtotal);
+      if (fromSelector) return fromSelector;
+    }
     return findMoneyAfterLabel(["Subtotal", "Cart subtotal", "Order subtotal"]);
   }
-  function findPossibleTotalText() {
+  function findPossibleTotalText(profile) {
+    if (profile?.selectors?.total) {
+      const fromSelector = extractMoneyFromElement(profile.selectors.total);
+      if (fromSelector) return fromSelector;
+    }
     return findMoneyAfterLabel(["Total", "Order total", "Grand total"]);
   }
   function findCouponInputs() {
@@ -69,9 +104,27 @@
       return text.includes("apply") || text.includes("redeem") || text.includes("use code");
     });
   }
-  function scanCheckoutPage() {
-    const subtotalText = findPossibleSubtotalText();
-    const totalText = findPossibleTotalText();
+  function findCouponInputForProfile(profile) {
+    if (profile?.selectors?.couponInput) {
+      const candidate = document.querySelector(
+        profile.selectors.couponInput
+      );
+      if (candidate) return candidate;
+    }
+    return findCouponInputs()[0] ?? null;
+  }
+  function findApplyButtonForProfile(profile) {
+    if (profile?.selectors?.applyButton) {
+      const candidate = document.querySelector(
+        profile.selectors.applyButton
+      );
+      if (candidate) return candidate;
+    }
+    return findApplyButtons()[0] ?? null;
+  }
+  function scanCheckoutPage(profile) {
+    const subtotalText = findPossibleSubtotalText(profile);
+    const totalText = findPossibleTotalText(profile);
     return {
       domain: window.location.hostname,
       subtotalText,
@@ -90,9 +143,9 @@
     });
     console.log("Salvare possible checkout text:", interestingLines.slice(0, 50));
   }
-  function applyCouponCode(code) {
-    const input = findCouponInputs()[0];
-    const button = findApplyButtons()[0];
+  function applyCouponCode(code, profile) {
+    const input = findCouponInputForProfile(profile);
+    const button = findApplyButtonForProfile(profile);
     if (!input || !button) {
       console.log("Salvare could not find coupon input or apply button");
       return false;
@@ -105,12 +158,12 @@
     console.log(`Salvare applied coupon code: ${code}`);
     return true;
   }
-  async function findBestWorkingCoupon(codes) {
+  async function findBestWorkingCoupon(codes, profile) {
     const results = [];
     for (const code of codes) {
-      applyCouponCode(code);
+      applyCouponCode(code, profile);
       await new Promise((resolve) => setTimeout(resolve, 1e3));
-      const scanAfterApply = scanCheckoutPage();
+      const scanAfterApply = scanCheckoutPage(profile);
       if (scanAfterApply.totalCents !== null) {
         results.push({
           code,
@@ -127,11 +180,12 @@
     );
     console.log("Salvare coupon test results:", results);
     console.log("Salvare best tested coupon:", best);
-    applyCouponCode(best.code);
+    applyCouponCode(best.code, profile);
     console.log(`Salvare re-applied best coupon: ${best.code}`);
     return best;
   }
-  var scan = scanCheckoutPage();
+  var initialProfile = getStoreProfileForDomain(window.location.hostname);
+  var scan = scanCheckoutPage(initialProfile);
   console.log("Salvare checkout scan:", scan);
   logPossibleCheckoutText();
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -146,7 +200,7 @@
       });
       return;
     }
-    findBestWorkingCoupon(profile.candidateCodes).then((best) => {
+    findBestWorkingCoupon(profile.candidateCodes, profile).then((best) => {
       if (!best) {
         sendResponse({
           success: false,
