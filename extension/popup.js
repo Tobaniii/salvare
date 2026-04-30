@@ -7,6 +7,9 @@
       statusElement.textContent = message;
     }
   }
+  function formatDollars(cents) {
+    return `$${(cents / 100).toFixed(2)}`;
+  }
   button?.addEventListener("click", async () => {
     console.log("Salvare popup button clicked");
     setStatus("Testing coupons...");
@@ -23,15 +26,21 @@
       { type: "SALVARE_FIND_BEST_COUPON" },
       (response) => {
         if (chrome.runtime.lastError) {
-          console.error(chrome.runtime.lastError.message);
-          setStatus("Could not connect to page.");
+          const errorMessage = chrome.runtime.lastError.message ?? "Unknown error";
+            console.error("Salvare popup error:", errorMessage);
+            setStatus(`Could not connect to page: ${errorMessage}`);
           return;
         }
         if (!response?.success) {
           setStatus(response?.message ?? "No coupon found.");
           return;
         }
-        setStatus(`Best code: ${response.bestCode}`);
+        setStatus(
+          `Best code: ${response.bestCode}
+Final total: ${formatDollars(
+            response.totalCents
+          )}`
+        );
       }
     );
   });

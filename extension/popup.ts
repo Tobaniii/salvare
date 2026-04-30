@@ -7,6 +7,10 @@ function setStatus(message: string) {
   }
 }
 
+function formatDollars(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
 button?.addEventListener("click", async () => {
   console.log("Salvare popup button clicked");
 
@@ -37,7 +41,11 @@ button?.addEventListener("click", async () => {
         return;
       }
 
-      setStatus(`Best code: ${response.bestCode}`);
+      setStatus(
+        `Best code: ${response.bestCode}\nFinal total: ${formatDollars(
+          response.totalCents,
+        )}`,
+      );
     }
   );
 });
