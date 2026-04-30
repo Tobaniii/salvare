@@ -1,4 +1,13 @@
 (() => {
+  // extension/couponCandidates.ts
+  function getCandidateCodesForDomain(domain) {
+    const couponMap = {
+      localhost: ["SAVE10", "TAKE15", "FREESHIP"],
+      "www.wonderbly.com": ["WELCOME10", "SAVE15", "FREESHIP"]
+    };
+    return couponMap[domain] ?? [];
+  }
+
   // extension/contentScript.ts
   function parseMoneyToCents(value) {
     const cleaned = value.replace(/,/g, "").trim();
@@ -118,5 +127,10 @@
   var scan = scanCheckoutPage();
   console.log("Salvare checkout scan:", scan);
   logPossibleCheckoutText();
-  findBestWorkingCoupon(["SAVE10", "TAKE15", "FREESHIP"]);
+  var candidateCodes = getCandidateCodesForDomain(window.location.hostname);
+  if (candidateCodes.length > 0) {
+    findBestWorkingCoupon(candidateCodes);
+  } else {
+    console.log("Salvare found no candidate coupons for this store.");
+  }
 })();

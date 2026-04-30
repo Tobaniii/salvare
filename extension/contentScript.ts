@@ -1,3 +1,4 @@
+import { getCandidateCodesForDomain } from "./couponCandidates";
 type SalvareCheckoutScan = {
   domain: string;
   subtotalText: string | null;
@@ -206,10 +207,16 @@ async function findBestWorkingCoupon(codes: string[]): Promise<void> {
   console.log(`Salvare re-applied best coupon: ${best.code}`);
 }
 
-
 const scan = scanCheckoutPage();
 
 console.log("Salvare checkout scan:", scan);
 logPossibleCheckoutText();
 
-findBestWorkingCoupon(["SAVE10", "TAKE15", "FREESHIP"]);
+const candidateCodes = getCandidateCodesForDomain(window.location.hostname);
+
+if (candidateCodes.length > 0) {
+  findBestWorkingCoupon(candidateCodes);
+} else {
+  console.log("Salvare found no candidate coupons for this store.");
+}
+
