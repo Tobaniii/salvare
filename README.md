@@ -1,3 +1,7 @@
+## Preview
+
+![App Screenshot](./src/assets/screenshot.png)
+
 # Salvare – Coupon Optimization App
 
 Salvare is a React + TypeScript application that finds the best coupon for a shopping cart based on real-world constraints such as category restrictions, minimum spend, and sale exclusions.
