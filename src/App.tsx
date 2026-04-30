@@ -78,9 +78,15 @@ function App() {
     CouponEvaluationResult[]
   >([]);
   const [checked, setChecked] = useState(false);
+  const [manualCouponCode, setManualCouponCode] = useState("");
+  const [appliedCoupon, setAppliedCoupon] =
+    useState<CouponEvaluationResult | null>(null);
 
   const subtotal = getCartSubtotal(cart);
   const total = subtotal + cart.shippingCents;
+  const displayedTotal = appliedCoupon
+  ? appliedCoupon.finalPriceCents
+  : total;
 
   const best = eligibleResults[0] ?? null;
   const others = eligibleResults.slice(1);
@@ -95,6 +101,19 @@ function App() {
       .sort((a, b) => b.savingsCents - a.savingsCents);
     setEligibleResults(sorted);
     setChecked(true);
+  };
+  const handleApplyCoupon = () => {
+  const coupon = coupons.find(
+    (c) => c.code.toLowerCase() === manualCouponCode.trim().toLowerCase()
+  );
+
+  if (!coupon) {
+    setAppliedCoupon(null);
+    return;
+  }
+
+  const result = evaluateCoupon(cart, coupon);
+  setAppliedCoupon(result.eligible ? result : null);
   };
 
   return (
@@ -128,7 +147,7 @@ function App() {
           </div>
           <div className="grand">
             <span>Total</span>
-            <span>{formatDollars(total)}</span>
+            <span>{formatDollars(displayedTotal)}</span>
           </div>
         </div>
       </section>
@@ -153,6 +172,31 @@ function App() {
             </li>
           ))}
         </ul>
+      </section>
+
+      <section className="panel">
+        <h2>Checkout Test Area</h2>
+
+        <label htmlFor="coupon-code">Coupon code</label>
+        <input
+          id="coupon-code"
+          name="coupon"
+          placeholder="Enter coupon code"
+          type="text"
+          value={manualCouponCode}
+          onChange={(event) => setManualCouponCode(event.target.value)}
+        />
+          <button type="button" onClick={handleApplyCoupon}>
+            Apply coupon
+          </button>
+
+
+          {appliedCoupon && (
+            <p className="explanation">
+              Applied {appliedCoupon.coupon.code}: saved{" "}
+              {formatDollars(appliedCoupon.savingsCents)}
+            </p>
+          )}
       </section>
 
       <button type="button" className="primary" onClick={handleFindBest}>

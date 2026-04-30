@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Salvare",
+  "version": "0.1.0",
+  "description": "Find the best coupon for your cart.",
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["contentScript.js"]
+    }
+  ]
+}
