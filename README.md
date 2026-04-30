@@ -22,6 +22,24 @@ Salvare is a React + TypeScript application that finds the best coupon for a sho
 - Vitest (unit testing)
 
 ## Example
+Cart total: $145.00  
+Best coupon: TAKE15  
+Savings: $15.00  
+Final price: $130.00  
+
+Upsell suggestion:  
+Add $13.00 more to unlock TAKE20 and save $20.00 instead  
+
+## Running Locally
+
+```bash
+npm install
+npm run dev
 
 Best coupon is selected based on maximum savings:
 
+What I Learned
+- Designing reusable business logic
+- Handling edge cases in pricing systems
+- Writing unit tests for real-world scenarios
+- Structuring a React + TypeScript project
