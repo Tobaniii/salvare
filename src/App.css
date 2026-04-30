@@ -1,0 +1,147 @@
+.salvare {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 48px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  text-align: left;
+}
+
+.salvare header {
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.salvare h1 {
+  margin: 0 0 4px;
+  font-size: 32px;
+}
+
+.salvare .tagline {
+  margin: 0;
+  color: var(--text);
+  opacity: 0.7;
+}
+
+.salvare .panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  background: var(--social-bg);
+}
+
+.salvare .panel h2 {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+
+.salvare .list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.salvare .list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--border);
+}
+
+.salvare .list li:last-child {
+  border-bottom: none;
+}
+
+.salvare .code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+}
+
+.salvare .meta {
+  opacity: 0.75;
+  font-size: 14px;
+}
+
+.salvare .totals {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.salvare .totals > div {
+  display: flex;
+  justify-content: space-between;
+}
+
+.salvare .totals .grand {
+  font-weight: 700;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+
+.salvare .primary {
+  align-self: center;
+  font-size: 16px;
+  padding: 10px 20px;
+  border-radius: 8px;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.salvare .primary:hover {
+  border-color: var(--accent-border);
+}
+
+.salvare .primary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.salvare .result .explanation {
+  margin: 12px 0 0;
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+.salvare .compared {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.salvare .compared h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  opacity: 0.85;
+}
+
+.salvare .suggestions {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border, var(--border));
+}
+
+.salvare .suggestions h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--accent);
+}
+
+.salvare .suggestions li {
+  display: block;
+  border-bottom: none;
+  font-size: 14px;
+  padding: 4px 0;
+}
