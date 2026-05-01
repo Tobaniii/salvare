@@ -9,7 +9,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest",
-    "build:extension": "esbuild extension/contentScript.ts --bundle --outfile=extension/contentScript.js && esbuild extension/popup.ts --bundle --outfile=extension/popup.js"
+    "build:extension": "esbuild extension/contentScript.ts --bundle --outfile=extension/contentScript.js && esbuild extension/popup.ts --bundle --outfile=extension/popup.js",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=server/index.js",
+    "start:server": "node server/index.js"
   },
   "dependencies": {
     "react": "^19.2.5",
