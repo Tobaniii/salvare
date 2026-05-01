@@ -39,8 +39,16 @@ Add $13.00 more to unlock TAKE20 and save $20.00 instead
 
 *CURRENT STATUS* - Salvare now works on:
 
-local test checkout
+Local test checkout
 Shopify dev checkout
+WooCommerce local checkout
+
+Shopify: tested on dev checkout
+WooCommerce: tested on LocalWP checkout
+
+Candidate coupon codes are still profile-based/hardcoded.
+No backend coupon discovery yet.
+Store support depends on selectors and checkout structure.
 
 ```bash
 npm install
