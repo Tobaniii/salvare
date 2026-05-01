@@ -16,6 +16,9 @@ Salvare is a React + TypeScript app and a companion Chrome extension that finds 
 
 ### Chrome extension
 - Popup-triggered coupon testing on the active tab.
+- Popup readiness check on open for supported stores.
+- Detects coupon input, apply button, and checkout total before testing.
+- Shows a friendly message on unsupported or restricted pages.
 - Store profiles match by hostname and supply selectors for the coupon input, apply button, subtotal, and total.
 - Coupon-section expander for checkouts where the coupon area is collapsed (e.g. WooCommerce "Add coupons").
 - Search-form guard so apply attempts cannot click site-search submit buttons or submit search forms.
