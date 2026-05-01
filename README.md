@@ -34,7 +34,10 @@ Final price: $130.00
 Upsell suggestion:  
 Add $13.00 more to unlock TAKE20 and save $20.00 instead  
 
-## Running Locally
+*CURRENT STATUS* - Salvare now works on:
+
+local test checkout
+Shopify dev checkout
 
 ```bash
 npm install
