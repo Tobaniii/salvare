@@ -194,37 +194,101 @@ function isButtonClickable(button: HTMLElement): boolean {
   return true;
 }
 
-function findApplyButtonNearInput(
-  input: HTMLInputElement,
+function looksLikeSearchTarget(element: Element | null): boolean {
+  if (!element) return false;
+
+  const elementAttrs = [
+    element.getAttribute("name"),
+    element.getAttribute("id"),
+    element.getAttribute("class"),
+    element.getAttribute("role"),
+    element.getAttribute("aria-label"),
+    element.getAttribute("value"),
+    (element as HTMLElement).innerText,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (
+    elementAttrs.includes("search-submit") ||
+    elementAttrs.includes("wp-block-search") ||
+    elementAttrs.includes("search")
+  ) {
+    return true;
+  }
+
+  const form = (element as HTMLElement).closest("form");
+  if (form) {
+    const action = (form.getAttribute("action") ?? "").toLowerCase();
+    if (action.includes("?s=") || action.includes("/search")) return true;
+
+    const formAttrs = [
+      form.getAttribute("name"),
+      form.getAttribute("id"),
+      form.getAttribute("class"),
+      form.getAttribute("role"),
+      form.getAttribute("aria-label"),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    if (formAttrs.includes("search")) return true;
+  }
+
+  return false;
+}
+
+function pickApplyButtonInScope(
+  scope: HTMLElement,
 ): HTMLButtonElement | null {
   const applyKeywords = ["apply discount", "apply coupon", "apply"];
 
+  const buttons = Array.from(
+    scope.querySelectorAll<HTMLButtonElement>(
+      "button, input[type='submit'], input[type='button']",
+    ),
+  );
+
+  for (const keyword of applyKeywords) {
+    const match = buttons.find((button) => {
+      if (!isButtonClickable(button)) return false;
+      if (looksLikeSearchTarget(button)) return false;
+
+      const text = [
+        (button as HTMLElement).innerText,
+        button.getAttribute("value"),
+        button.getAttribute("aria-label"),
+        button.getAttribute("title"),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .trim()
+        .toLowerCase();
+      return text.includes(keyword);
+    });
+    if (match) return match;
+  }
+
+  return null;
+}
+
+function findApplyButtonNearInput(
+  input: HTMLInputElement,
+): HTMLButtonElement | null {
+  const primaryScope =
+    input.closest<HTMLElement>("form") ??
+    input.closest<HTMLElement>("section, fieldset, [role='region']");
+
+  if (primaryScope) {
+    const inScope = pickApplyButtonInScope(primaryScope);
+    if (inScope) return inScope;
+  }
+
   let container: HTMLElement | null = input.parentElement;
   for (let depth = 0; depth < 8 && container; depth++) {
-    const buttons = Array.from(
-      container.querySelectorAll<HTMLButtonElement>(
-        "button, input[type='submit'], input[type='button']",
-      ),
-    );
-
-    for (const keyword of applyKeywords) {
-      const match = buttons.find((button) => {
-        if (!isButtonClickable(button)) return false;
-        const text = [
-          (button as HTMLElement).innerText,
-          button.getAttribute("value"),
-          button.getAttribute("aria-label"),
-          button.getAttribute("title"),
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .trim()
-          .toLowerCase();
-        return text.includes(keyword);
-      });
-      if (match) return match;
-    }
-
+    const match = pickApplyButtonInScope(container);
+    if (match) return match;
     container = container.parentElement;
   }
 
@@ -324,6 +388,11 @@ function applyCouponCode(
     return false;
   }
 
+  if (looksLikeSearchTarget(button)) {
+    console.warn("Salvare refused to click suspected search button");
+    return false;
+  }
+
   input.focus();
   setNativeInputValue(input, code);
 
@@ -353,9 +422,13 @@ function applyCouponCode(
 
   const form = input.form;
   if (form) {
-    form.dispatchEvent(
-      new Event("submit", { bubbles: true, cancelable: true }),
-    );
+    if (looksLikeSearchTarget(form)) {
+      console.warn("Salvare skipped submit on suspected search form");
+    } else {
+      form.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+    }
   }
 
   return true;
@@ -564,10 +637,72 @@ async function removeAppliedDiscounts(
   }
 }
 
+async function expandCouponSection(
+  profile?: StoreProfile | null,
+  timeoutMs = 2000,
+): Promise<void> {
+  const existing = findCouponInputForProfile(profile);
+  if (existing && isElementVisible(existing)) return;
+
+  const expandKeywords = [
+    "add coupons",
+    "add coupon",
+    "have a coupon?",
+    "have a coupon",
+    "coupon code",
+    "apply coupon",
+  ];
+
+  const candidates = Array.from(
+    document.querySelectorAll<HTMLElement>(
+      "button, summary, a, [role='button'], [aria-expanded='false']",
+    ),
+  );
+
+  const nearbyApplyButton = existing
+    ? findApplyButtonNearInput(existing)
+    : null;
+
+  for (const keyword of expandKeywords) {
+    const match = candidates.find((element) => {
+      if (!isElementVisible(element)) return false;
+      if (nearbyApplyButton && element === nearbyApplyButton) return false;
+
+      const label = [
+        element.innerText,
+        element.getAttribute("aria-label"),
+        element.getAttribute("title"),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .trim()
+        .toLowerCase();
+
+      return label.includes(keyword);
+    });
+
+    if (match) {
+      console.log("Salvare expanding coupon section via:", keyword);
+      try {
+        match.click();
+      } catch (err) {
+        console.log("Salvare coupon section click failed:", err);
+        return;
+      }
+      await waitForCheckoutIdle(profile, timeoutMs);
+      return;
+    }
+  }
+}
+
 async function findBestWorkingCoupon(
   codes: string[],
   profile?: StoreProfile | null,
-): Promise<{ code: string; totalCents: number } | null> {
+): Promise<{
+  code: string;
+  totalCents: number;
+  baselineTotalCents: number;
+} | null> {
   const WAIT_MS = 5000;
 
   const baselineScan = scanCheckoutPage(profile);
@@ -582,10 +717,17 @@ async function findBestWorkingCoupon(
     return null;
   }
 
+  await expandCouponSection(profile);
+
   const results: { code: string; totalCents: number }[] = [];
 
   for (const code of codes) {
     console.log("Salvare testing code:", code);
+
+    const inputCheck = findCouponInputForProfile(profile);
+    if (!inputCheck || !isElementVisible(inputCheck)) {
+      await expandCouponSection(profile);
+    }
 
     await removeAppliedDiscounts(profile);
 
@@ -653,7 +795,7 @@ async function findBestWorkingCoupon(
   await waitForCheckoutIdle(profile, WAIT_MS);
   console.log(`Salvare re-applied best coupon: ${best.code}`);
 
-  return best;
+  return { ...best, baselineTotalCents };
 }
 
 const initialProfile = getStoreProfileForDomain(window.location.hostname);
@@ -690,6 +832,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       success: true,
       bestCode: best.code,
       totalCents: best.totalCents,
+      savingsCents: best.baselineTotalCents - best.totalCents,
     });
   });
 

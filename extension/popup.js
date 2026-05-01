@@ -12,7 +12,7 @@
   }
   button?.addEventListener("click", async () => {
     console.log("Salvare popup button clicked");
-    setStatus("Testing coupons...");
+    setStatus("Scanning checkout...");
     const [tab] = await chrome.tabs.query({
       active: true,
       currentWindow: true
@@ -21,6 +21,7 @@
       setStatus("No active tab found.");
       return;
     }
+    setStatus("Testing coupons...");
     chrome.tabs.sendMessage(
       tab.id,
       { type: "SALVARE_FIND_BEST_COUPON" },
@@ -38,7 +39,8 @@
           `Best code: ${response.bestCode}
 Final total: ${formatDollars(
             response.totalCents
-          )}`
+          )}
+You saved: ${formatDollars(response.savingsCents)}`
         );
       }
     );

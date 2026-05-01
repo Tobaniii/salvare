@@ -14,7 +14,7 @@ function formatDollars(cents: number): string {
 button?.addEventListener("click", async () => {
   console.log("Salvare popup button clicked");
 
-  setStatus("Testing coupons...");
+  setStatus("Scanning checkout...");
 
   const [tab] = await chrome.tabs.query({
     active: true,
@@ -25,6 +25,8 @@ button?.addEventListener("click", async () => {
     setStatus("No active tab found.");
     return;
   }
+
+  setStatus("Testing coupons...");
 
   chrome.tabs.sendMessage(
     tab.id,
@@ -44,7 +46,7 @@ button?.addEventListener("click", async () => {
       setStatus(
         `Best code: ${response.bestCode}\nFinal total: ${formatDollars(
           response.totalCents,
-        )}`,
+        )}\nYou saved: ${formatDollars(response.savingsCents)}`,
       );
     }
   );

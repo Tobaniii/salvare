@@ -36,9 +36,10 @@ const STORE_PROFILES: StoreProfile[] = [
     domain: "salvare-woo-test.local",
     candidateCodes: ["WELCOME10", "TAKE20", "FREESHIP"],
     selectors: {
-      couponInput: "input[name='coupon_code'], #coupon_code",
+      couponInput:
+        "input[name='coupon_code'], #coupon_code, input[placeholder*='coupon' i], input[aria-label*='coupon' i]",
       applyButton:
-        "button[name='apply_coupon'], button[value='Apply coupon']",
+        "button[name='apply_coupon'], input[name='apply_coupon'], button[value='Apply coupon'], input[value='Apply coupon'], button[type='submit'][name='apply_coupon']",
       subtotal: ".cart-subtotal .woocommerce-Price-amount",
       total: ".order-total .woocommerce-Price-amount",
     },
