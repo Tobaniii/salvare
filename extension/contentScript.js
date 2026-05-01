@@ -632,40 +632,100 @@
     console.log(`Salvare re-applied best coupon: ${best.code}`);
     return { ...best, baselineTotalCents };
   }
+  async function getCheckoutSupportStatus(domain) {
+    const profile = getStoreProfileForDomain(domain);
+    if (!profile) {
+      return {
+        success: true,
+        domain,
+        supported: false,
+        couponInputFound: false,
+        applyButtonFound: false,
+        totalDetected: false,
+        baselineTotalCents: null,
+        message: "This store is not supported yet."
+      };
+    }
+    const codes = await fetchCandidateCodes(domain);
+    if (codes.length === 0) {
+      return {
+        success: true,
+        domain,
+        supported: false,
+        couponInputFound: false,
+        applyButtonFound: false,
+        totalDetected: false,
+        baselineTotalCents: null,
+        message: "No candidate coupons found for this store."
+      };
+    }
+    await expandCouponSection(profile);
+    const input = findCouponInputForProfile(profile);
+    const couponInputFound = !!input;
+    const button = input ? findApplyButtonNearInput(input) ?? findApplyButtonForProfile(profile) : null;
+    const applyButtonFound = !!button;
+    const baselineScan = scanCheckoutPage(profile);
+    const baselineTotalCents = baselineScan.totalCents;
+    const totalDetected = baselineTotalCents !== null;
+    let message = "Ready to test coupons.";
+    if (!couponInputFound) {
+      message = "Coupon input not found on this page.";
+    } else if (!applyButtonFound) {
+      message = "Apply button not found on this page.";
+    } else if (!totalDetected) {
+      message = "Checkout total not detected.";
+    }
+    return {
+      success: true,
+      domain,
+      supported: true,
+      couponInputFound,
+      applyButtonFound,
+      totalDetected,
+      baselineTotalCents,
+      message
+    };
+  }
   var initialProfile = getStoreProfileForDomain(window.location.hostname);
   var scan = scanCheckoutPage(initialProfile);
   console.log("Salvare checkout scan:", scan);
   logPossibleCheckoutText();
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message.type !== "SALVARE_FIND_BEST_COUPON") {
-      return;
+    if (message.type === "SALVARE_FIND_BEST_COUPON") {
+      const hostname = window.location.hostname;
+      const profile = getStoreProfileForDomain(hostname);
+      (async () => {
+        const codes = await fetchCandidateCodes(hostname);
+        if (!profile || codes.length === 0) {
+          sendResponse({
+            success: false,
+            message: "This store is not supported yet."
+          });
+          return;
+        }
+        const best = await findBestWorkingCoupon(codes, profile);
+        if (!best) {
+          sendResponse({
+            success: false,
+            message: "No coupon improved the total."
+          });
+          return;
+        }
+        sendResponse({
+          success: true,
+          bestCode: best.code,
+          totalCents: best.totalCents,
+          savingsCents: best.baselineTotalCents - best.totalCents
+        });
+      })();
+      return true;
     }
-    const hostname = window.location.hostname;
-    const profile = getStoreProfileForDomain(hostname);
-    (async () => {
-      const codes = await fetchCandidateCodes(hostname);
-      if (!profile || codes.length === 0) {
-        sendResponse({
-          success: false,
-          message: "This store is not supported yet."
-        });
-        return;
-      }
-      const best = await findBestWorkingCoupon(codes, profile);
-      if (!best) {
-        sendResponse({
-          success: false,
-          message: "No coupon improved the total."
-        });
-        return;
-      }
-      sendResponse({
-        success: true,
-        bestCode: best.code,
-        totalCents: best.totalCents,
-        savingsCents: best.baselineTotalCents - best.totalCents
-      });
-    })();
-    return true;
+    if (message.type === "SALVARE_CHECK_SUPPORT") {
+      (async () => {
+        const status = await getCheckoutSupportStatus(window.location.hostname);
+        sendResponse(status);
+      })();
+      return true;
+    }
   });
 })();
