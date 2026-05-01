@@ -1,4 +1,5 @@
 import {
+  fetchCandidateCodes,
   getStoreProfileForDomain,
   type StoreProfile,
 } from "./storeProfiles";
@@ -881,17 +882,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return;
   }
 
-  const profile = getStoreProfileForDomain(window.location.hostname);
+  const hostname = window.location.hostname;
+  const profile = getStoreProfileForDomain(hostname);
 
-  if (!profile) {
-    sendResponse({
-      success: false,
-      message: "This store is not supported yet.",
-    });
-    return;
-  }
+  (async () => {
+    const codes = await fetchCandidateCodes(hostname);
 
-  findBestWorkingCoupon(profile.candidateCodes, profile).then((best) => {
+    if (!profile || codes.length === 0) {
+      sendResponse({
+        success: false,
+        message: "This store is not supported yet.",
+      });
+      return;
+    }
+
+    const best = await findBestWorkingCoupon(codes, profile);
+
     if (!best) {
       sendResponse({
         success: false,
@@ -906,7 +912,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       totalCents: best.totalCents,
       savingsCents: best.baselineTotalCents - best.totalCents,
     });
-  });
+  })();
 
   return true;
 });

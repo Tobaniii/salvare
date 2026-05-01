@@ -33,6 +33,10 @@
   function getStoreProfileForDomain(domain) {
     return STORE_PROFILES.find((profile) => profile.domain === domain) ?? null;
   }
+  async function fetchCandidateCodes(domain) {
+    const profile = getStoreProfileForDomain(domain);
+    return profile?.candidateCodes ?? [];
+  }
 
   // extension/contentScript.ts
   function parseMoneyToCents(value) {
@@ -634,15 +638,18 @@
     if (message.type !== "SALVARE_FIND_BEST_COUPON") {
       return;
     }
-    const profile = getStoreProfileForDomain(window.location.hostname);
-    if (!profile) {
-      sendResponse({
-        success: false,
-        message: "This store is not supported yet."
-      });
-      return;
-    }
-    findBestWorkingCoupon(profile.candidateCodes, profile).then((best) => {
+    const hostname = window.location.hostname;
+    const profile = getStoreProfileForDomain(hostname);
+    (async () => {
+      const codes = await fetchCandidateCodes(hostname);
+      if (!profile || codes.length === 0) {
+        sendResponse({
+          success: false,
+          message: "This store is not supported yet."
+        });
+        return;
+      }
+      const best = await findBestWorkingCoupon(codes, profile);
       if (!best) {
         sendResponse({
           success: false,
@@ -656,7 +663,7 @@
         totalCents: best.totalCents,
         savingsCents: best.baselineTotalCents - best.totalCents
       });
-    });
+    })();
     return true;
   });
 })();

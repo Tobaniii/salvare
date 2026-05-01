@@ -51,3 +51,8 @@ export function getStoreProfileForDomain(
 ): StoreProfile | null {
   return STORE_PROFILES.find((profile) => profile.domain === domain) ?? null;
 }
+
+export async function fetchCandidateCodes(domain: string): Promise<string[]> {
+  const profile = getStoreProfileForDomain(domain);
+  return profile?.candidateCodes ?? [];
+}
