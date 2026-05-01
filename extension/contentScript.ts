@@ -3,6 +3,7 @@ import {
   getStoreProfileForDomain,
   type StoreProfile,
 } from "./storeProfiles";
+import { extractMoneyText, parseMoneyToCents } from "./moneyParsing";
 type SalvareCheckoutScan = {
   domain: string;
   subtotalText: string | null;
@@ -13,14 +14,6 @@ type SalvareCheckoutScan = {
   applyButtonsFound: number;
 };
 
-function parseMoneyToCents(value: string): number | null {
-  const cleaned = value.replace(/,/g, "").trim();
-  const amount = Number(cleaned);
-
-  if (Number.isNaN(amount)) return null;
-
-  return Math.round(amount * 100);
-}
 function findMoneyAfterLabel(labels: string[]): string | null {
   const lines = document.body.innerText
     .split("\n")
@@ -44,15 +37,6 @@ function findMoneyAfterLabel(labels: string[]): string | null {
   }
 
   return null;
-}
-
-const MONEY_REGEX = /(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+\.\d{2}|\d+)/g;
-
-function extractMoneyText(text: string): string | null {
-  if (!text) return null;
-  const matches = text.match(MONEY_REGEX);
-  if (!matches || matches.length === 0) return null;
-  return matches[matches.length - 1];
 }
 
 function isElementVisible(element: Element): boolean {

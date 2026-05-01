@@ -38,13 +38,22 @@
     return profile?.candidateCodes ?? [];
   }
 
-  // extension/contentScript.ts
+  // extension/moneyParsing.ts
+  var MONEY_REGEX = /(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+\.\d{2}|\d+)/g;
   function parseMoneyToCents(value) {
     const cleaned = value.replace(/,/g, "").trim();
     const amount = Number(cleaned);
     if (Number.isNaN(amount)) return null;
     return Math.round(amount * 100);
   }
+  function extractMoneyText(text) {
+    if (!text) return null;
+    const matches = text.match(MONEY_REGEX);
+    if (!matches || matches.length === 0) return null;
+    return matches[matches.length - 1];
+  }
+
+  // extension/contentScript.ts
   function findMoneyAfterLabel(labels) {
     const lines = document.body.innerText.split("\n").map((line) => line.trim()).filter(Boolean);
     for (let i = 0; i < lines.length; i++) {
@@ -59,13 +68,6 @@
       }
     }
     return null;
-  }
-  var MONEY_REGEX = /(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+\.\d{2}|\d+)/g;
-  function extractMoneyText(text) {
-    if (!text) return null;
-    const matches = text.match(MONEY_REGEX);
-    if (!matches || matches.length === 0) return null;
-    return matches[matches.length - 1];
   }
   function isElementVisible(element) {
     const htmlElement = element;

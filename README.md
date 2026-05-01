@@ -64,6 +64,10 @@ Then in Chrome:
 6. Keep only codes that strictly beat the baseline total.
 7. Re-apply the winning code so the user lands on a checkout already showing the best price. The popup displays the best code, final total, and savings.
 
+## Backend/API readiness
+
+Salvare currently uses mock candidate codes drawn from the store profiles in `extension/storeProfiles.ts`. The async functions `fetchCandidateCodes(domain)` and `fetchCandidateCodeResult(domain)` are the seam where a real backend coupon API can be connected later. No external coupon discovery, scraping, or third-party API calls are implemented yet.
+
 ## Current limitations
 
 - Candidate coupon codes are hardcoded per store profile in `extension/storeProfiles.ts`.
