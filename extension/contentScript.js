@@ -103,13 +103,65 @@
     if (fromLabel) return fromLabel;
     return findMoneyAfterLabel(["Subtotal", "Cart subtotal", "Order subtotal"]);
   }
+  var TOTAL_BLACKLIST = ["subtotal", "discount", "total savings", "savings"];
+  function containsBlacklistedTotalPhrase(text) {
+    const lower = text.toLowerCase();
+    return TOTAL_BLACKLIST.some((phrase) => lower.includes(phrase));
+  }
+  function findWooCommerceTotalText() {
+    const candidates = Array.from(
+      document.querySelectorAll('[class*="order-total"]')
+    );
+    for (const element of candidates) {
+      if (!isElementVisible(element)) continue;
+      const text = element.innerText ?? element.textContent ?? "";
+      if (!text.trim()) continue;
+      if (containsBlacklistedTotalPhrase(text)) continue;
+      const money = extractMoneyText(text);
+      if (money) {
+        const totalCents = parseMoneyToCents(money);
+        console.log("Salvare Woo total detected:", {
+          totalText: money,
+          totalCents
+        });
+        return money;
+      }
+    }
+    return null;
+  }
+  function findTotalRowText(labels, blacklist) {
+    const all = Array.from(document.querySelectorAll("*"));
+    for (const label of labels) {
+      const target = label.trim().toLowerCase();
+      for (const element of all) {
+        const ownText = (element.textContent ?? "").trim().toLowerCase();
+        if (ownText !== target) continue;
+        if (!isElementVisible(element)) continue;
+        let container = element;
+        for (let depth = 0; depth < 6 && container; depth++) {
+          const containerText = (container.innerText ?? container.textContent ?? "").toLowerCase();
+          if (containerText.includes(target) && !blacklist.some((phrase) => containerText.includes(phrase))) {
+            const money = extractMoneyText(containerText);
+            if (money) return money;
+          }
+          container = container.parentElement;
+        }
+      }
+    }
+    return null;
+  }
   function findPossibleTotalText(profile) {
     if (profile?.selectors?.total) {
       const fromSelector = extractMoneyFromElement(profile.selectors.total);
       if (fromSelector) return fromSelector;
     }
-    const fromLabel = getVisibleTextAroundLabel("Total") ?? getVisibleTextAroundLabel("Order total") ?? getVisibleTextAroundLabel("Grand total");
-    if (fromLabel) return fromLabel;
+    const fromWoo = findWooCommerceTotalText();
+    if (fromWoo) return fromWoo;
+    const fromRow = findTotalRowText(
+      ["Total", "Order total", "Grand total"],
+      TOTAL_BLACKLIST
+    );
+    if (fromRow) return fromRow;
     return findMoneyAfterLabel(["Total", "Order total", "Grand total"]);
   }
   function findCouponInputs() {
@@ -566,6 +618,7 @@
     console.log("Salvare coupon test results:", results);
     console.log("Salvare best tested coupon:", best);
     await removeAppliedDiscounts(profile);
+    await expandCouponSection(profile);
     clearCouponInput(profile);
     await waitForCheckoutIdle(profile, WAIT_MS);
     applyCouponCode(best.code, profile);
