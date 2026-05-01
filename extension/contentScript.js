@@ -33,6 +33,8 @@
   function getStoreProfileForDomain(domain) {
     return STORE_PROFILES.find((profile) => profile.domain === domain) ?? null;
   }
+
+  // extension/couponProvider.ts
   async function fetchCandidateCodes(domain) {
     const profile = getStoreProfileForDomain(domain);
     return profile?.candidateCodes ?? [];

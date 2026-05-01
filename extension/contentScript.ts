@@ -1,8 +1,8 @@
 import {
-  fetchCandidateCodes,
   getStoreProfileForDomain,
   type StoreProfile,
 } from "./storeProfiles";
+import { fetchCandidateCodes } from "./couponProvider";
 import { extractMoneyText, parseMoneyToCents } from "./moneyParsing";
 type SalvareCheckoutScan = {
   domain: string;
