@@ -199,7 +199,6 @@
     const subtotalText = findPossibleSubtotalText(profile);
     const totalText = findPossibleTotalText(profile);
     const totalCents = totalText ? parseMoneyToCents(totalText) : null;
-    console.log("Salvare total detection debug:", { totalText, totalCents });
     return {
       domain: window.location.hostname,
       subtotalText,
@@ -236,8 +235,6 @@
       return false;
     }
     const button = findApplyButtonNearInput(input) ?? findApplyButtonForProfile(profile);
-    console.log("Salvare selected coupon input:", input);
-    console.log("Salvare selected apply button:", button);
     console.log("Salvare apply button text:", button?.textContent);
     if (!button) {
       console.log("Salvare could not find apply button near coupon input");
@@ -269,7 +266,6 @@
         new Event("submit", { bubbles: true, cancelable: true })
       );
     }
-    console.log(`Salvare applied coupon code: ${code}`);
     return true;
   }
   function clearCouponInput(profile) {
@@ -329,7 +325,7 @@
     const bodyText = getVisibleBodyText();
     return DISCOUNT_ERROR_PHRASES.some((phrase) => bodyText.includes(phrase));
   }
-  async function waitForDiscountResult(code, timeoutMs = 12e3, profile) {
+  async function waitForDiscountResult(code, timeoutMs = 6e3, profile) {
     const POLL_MS = 300;
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
@@ -339,7 +335,7 @@
     }
     return "timeout";
   }
-  async function waitForTotalChange(profile, previousTotalCents, timeoutMs = 1e4) {
+  async function waitForTotalChange(profile, previousTotalCents, timeoutMs = 5e3) {
     const POLL_MS = 300;
     const start = Date.now();
     let latestTotalCents = null;
@@ -369,7 +365,7 @@
     if (busyNearby.length > 0) return true;
     return false;
   }
-  async function waitForCheckoutIdle(profile, timeoutMs = 1e4) {
+  async function waitForCheckoutIdle(profile, timeoutMs = 5e3) {
     const POLL_MS = 300;
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
@@ -418,11 +414,11 @@
     }
     if (clicked > 0) {
       console.log(`Salvare clicked ${clicked} possible remove button(s)`);
-      await waitForCheckoutIdle(profile, 1e4);
+      await waitForCheckoutIdle(profile, 5e3);
     }
   }
   async function findBestWorkingCoupon(codes, profile) {
-    const WAIT_MS = 1e4;
+    const WAIT_MS = 5e3;
     const baselineScan = scanCheckoutPage(profile);
     const baselineTotalCents = baselineScan.totalCents;
     console.log("Salvare baseline total:", baselineTotalCents);
@@ -447,14 +443,13 @@
       clearCouponInput(profile);
       await waitForCheckoutIdle(profile, WAIT_MS);
       applyCouponCode(code, profile);
-      const discountResult = await waitForDiscountResult(code, 12e3, profile);
+      const discountResult = await waitForDiscountResult(code, 6e3, profile);
       console.log("Salvare discount result:", { code, discountResult });
       await waitForCheckoutIdle(profile, WAIT_MS);
       if (discountResult === "applied") {
         await waitForTotalChange(profile, baselineTotalCents, WAIT_MS);
       }
       const scanAfterApply = scanCheckoutPage(profile);
-      console.log("Salvare after apply scan:", scanAfterApply);
       const totalCents = scanAfterApply.totalCents;
       const improved = discountResult === "applied" && totalCents !== null && totalCents < baselineTotalCents;
       console.log("Salvare tested code result:", {

@@ -255,8 +255,6 @@ function scanCheckoutPage(profile?: StoreProfile | null): SalvareCheckoutScan {
   const totalText = findPossibleTotalText(profile);
   const totalCents = totalText ? parseMoneyToCents(totalText) : null;
 
-  console.log("Salvare total detection debug:", { totalText, totalCents });
-
   return {
     domain: window.location.hostname,
     subtotalText,
@@ -319,8 +317,6 @@ function applyCouponCode(
   const button =
     findApplyButtonNearInput(input) ?? findApplyButtonForProfile(profile);
 
-  console.log("Salvare selected coupon input:", input);
-  console.log("Salvare selected apply button:", button);
   console.log("Salvare apply button text:", button?.textContent);
 
   if (!button) {
@@ -362,7 +358,6 @@ function applyCouponCode(
     );
   }
 
-  console.log(`Salvare applied coupon code: ${code}`);
   return true;
 }
 
@@ -374,23 +369,6 @@ function clearCouponInput(profile?: StoreProfile | null): void {
   input.value = "";
   input.dispatchEvent(new Event("input", { bubbles: true }));
   input.dispatchEvent(new Event("change", { bubbles: true }));
-}
-async function testCouponCodes(
-  codes: string[],
-  profile?: StoreProfile | null,
-): Promise<void> {
-  for (const code of codes) {
-    applyCouponCode(code, profile);
-
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    const scanAfterApply = scanCheckoutPage(profile);
-
-    console.log(`Salvare tested ${code}:`, {
-      detectedTotalCents: scanAfterApply.totalCents,
-      scan: scanAfterApply,
-    });
-  }
 }
 const DISCOUNT_ERROR_PHRASES = [
   "invalid",
@@ -461,7 +439,7 @@ function discountErrorVisible(): boolean {
 
 async function waitForDiscountResult(
   code: string,
-  timeoutMs = 12000,
+  timeoutMs = 6000,
   profile?: StoreProfile | null,
 ): Promise<"applied" | "rejected" | "timeout"> {
   const POLL_MS = 300;
@@ -479,7 +457,7 @@ async function waitForDiscountResult(
 async function waitForTotalChange(
   profile: StoreProfile | null | undefined,
   previousTotalCents: number | null,
-  timeoutMs = 10000,
+  timeoutMs = 5000,
 ): Promise<number | null> {
   const POLL_MS = 300;
   const start = Date.now();
@@ -518,7 +496,7 @@ function isCheckoutBusy(profile?: StoreProfile | null): boolean {
 
 async function waitForCheckoutIdle(
   profile?: StoreProfile | null,
-  timeoutMs = 10000,
+  timeoutMs = 5000,
 ): Promise<void> {
   const POLL_MS = 300;
   const start = Date.now();
@@ -582,7 +560,7 @@ async function removeAppliedDiscounts(
 
   if (clicked > 0) {
     console.log(`Salvare clicked ${clicked} possible remove button(s)`);
-    await waitForCheckoutIdle(profile, 10000);
+    await waitForCheckoutIdle(profile, 5000);
   }
 }
 
@@ -590,7 +568,7 @@ async function findBestWorkingCoupon(
   codes: string[],
   profile?: StoreProfile | null,
 ): Promise<{ code: string; totalCents: number } | null> {
-  const WAIT_MS = 10000;
+  const WAIT_MS = 5000;
 
   const baselineScan = scanCheckoutPage(profile);
   const baselineTotalCents = baselineScan.totalCents;
@@ -628,7 +606,7 @@ async function findBestWorkingCoupon(
 
     applyCouponCode(code, profile);
 
-    const discountResult = await waitForDiscountResult(code, 12000, profile);
+    const discountResult = await waitForDiscountResult(code, 6000, profile);
     console.log("Salvare discount result:", { code, discountResult });
 
     await waitForCheckoutIdle(profile, WAIT_MS);
@@ -637,7 +615,6 @@ async function findBestWorkingCoupon(
     }
 
     const scanAfterApply = scanCheckoutPage(profile);
-    console.log("Salvare after apply scan:", scanAfterApply);
 
     const totalCents = scanAfterApply.totalCents;
     const improved =
