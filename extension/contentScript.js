@@ -56,18 +56,51 @@
     }
     return null;
   }
+  var MONEY_REGEX = /(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+\.\d{2}|\d+)/g;
+  function extractMoneyText(text) {
+    if (!text) return null;
+    const matches = text.match(MONEY_REGEX);
+    if (!matches || matches.length === 0) return null;
+    return matches[matches.length - 1];
+  }
+  function isElementVisible(element) {
+    const htmlElement = element;
+    if (htmlElement.offsetWidth === 0 && htmlElement.offsetHeight === 0 && htmlElement.getClientRects().length === 0) {
+      return false;
+    }
+    const style = window.getComputedStyle(htmlElement);
+    return style.visibility !== "hidden" && style.display !== "none";
+  }
   function extractMoneyFromElement(selector) {
     const element = document.querySelector(selector);
     if (!element) return null;
     const text = element.innerText ?? element.textContent ?? "";
-    const moneyMatch = text.match(/\$?\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/);
-    return moneyMatch?.[1] ?? null;
+    return extractMoneyText(text);
+  }
+  function getVisibleTextAroundLabel(label) {
+    const target = label.trim().toLowerCase();
+    const all = Array.from(document.querySelectorAll("*"));
+    for (const element of all) {
+      const ownText = (element.textContent ?? "").trim().toLowerCase();
+      if (ownText !== target) continue;
+      if (!isElementVisible(element)) continue;
+      let container = element;
+      for (let depth = 0; depth < 6 && container; depth++) {
+        const containerText = container.innerText ?? container.textContent ?? "";
+        const money = extractMoneyText(containerText);
+        if (money) return money;
+        container = container.parentElement;
+      }
+    }
+    return null;
   }
   function findPossibleSubtotalText(profile) {
     if (profile?.selectors?.subtotal) {
       const fromSelector = extractMoneyFromElement(profile.selectors.subtotal);
       if (fromSelector) return fromSelector;
     }
+    const fromLabel = getVisibleTextAroundLabel("Subtotal") ?? getVisibleTextAroundLabel("Cart subtotal") ?? getVisibleTextAroundLabel("Order subtotal");
+    if (fromLabel) return fromLabel;
     return findMoneyAfterLabel(["Subtotal", "Cart subtotal", "Order subtotal"]);
   }
   function findPossibleTotalText(profile) {
@@ -75,6 +108,8 @@
       const fromSelector = extractMoneyFromElement(profile.selectors.total);
       if (fromSelector) return fromSelector;
     }
+    const fromLabel = getVisibleTextAroundLabel("Total") ?? getVisibleTextAroundLabel("Order total") ?? getVisibleTextAroundLabel("Grand total");
+    if (fromLabel) return fromLabel;
     return findMoneyAfterLabel(["Total", "Order total", "Grand total"]);
   }
   function findCouponInputs() {
@@ -113,7 +148,45 @@
     }
     return findCouponInputs()[0] ?? null;
   }
+  function isButtonClickable(button) {
+    if (!isElementVisible(button)) return false;
+    const buttonElement = button;
+    if (buttonElement.disabled) return false;
+    if (button.getAttribute("aria-disabled") === "true") return false;
+    return true;
+  }
+  function findApplyButtonNearInput(input) {
+    const applyKeywords = ["apply discount", "apply coupon", "apply"];
+    let container = input.parentElement;
+    for (let depth = 0; depth < 8 && container; depth++) {
+      const buttons = Array.from(
+        container.querySelectorAll(
+          "button, input[type='submit'], input[type='button']"
+        )
+      );
+      for (const keyword of applyKeywords) {
+        const match = buttons.find((button) => {
+          if (!isButtonClickable(button)) return false;
+          const text = [
+            button.innerText,
+            button.getAttribute("value"),
+            button.getAttribute("aria-label"),
+            button.getAttribute("title")
+          ].filter(Boolean).join(" ").trim().toLowerCase();
+          return text.includes(keyword);
+        });
+        if (match) return match;
+      }
+      container = container.parentElement;
+    }
+    return null;
+  }
   function findApplyButtonForProfile(profile) {
+    const input = findCouponInputForProfile(profile);
+    if (input) {
+      const nearby = findApplyButtonNearInput(input);
+      if (nearby) return nearby;
+    }
     if (profile?.selectors?.applyButton) {
       const candidate = document.querySelector(
         profile.selectors.applyButton
@@ -125,12 +198,14 @@
   function scanCheckoutPage(profile) {
     const subtotalText = findPossibleSubtotalText(profile);
     const totalText = findPossibleTotalText(profile);
+    const totalCents = totalText ? parseMoneyToCents(totalText) : null;
+    console.log("Salvare total detection debug:", { totalText, totalCents });
     return {
       domain: window.location.hostname,
       subtotalText,
       subtotalCents: subtotalText ? parseMoneyToCents(subtotalText) : null,
       totalText,
-      totalCents: totalText ? parseMoneyToCents(totalText) : null,
+      totalCents,
       couponInputsFound: findCouponInputs().length,
       applyButtonsFound: findApplyButtons().length
     };
@@ -143,36 +218,257 @@
     });
     console.log("Salvare possible checkout text:", interestingLines.slice(0, 50));
   }
+  function setNativeInputValue(input, value) {
+    const setter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value"
+    )?.set;
+    if (setter) {
+      setter.call(input, value);
+    } else {
+      input.value = value;
+    }
+  }
   function applyCouponCode(code, profile) {
     const input = findCouponInputForProfile(profile);
-    const button = findApplyButtonForProfile(profile);
-    if (!input || !button) {
-      console.log("Salvare could not find coupon input or apply button");
+    if (!input) {
+      console.log("Salvare could not find coupon input");
+      return false;
+    }
+    const button = findApplyButtonNearInput(input) ?? findApplyButtonForProfile(profile);
+    console.log("Salvare selected coupon input:", input);
+    console.log("Salvare selected apply button:", button);
+    console.log("Salvare apply button text:", button?.textContent);
+    if (!button) {
+      console.log("Salvare could not find apply button near coupon input");
       return false;
     }
     input.focus();
-    input.value = code;
+    setNativeInputValue(input, code);
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true })
+    );
+    input.dispatchEvent(
+      new KeyboardEvent("keypress", { key: "Enter", bubbles: true })
+    );
+    input.dispatchEvent(
+      new KeyboardEvent("keyup", { key: "Enter", bubbles: true })
+    );
+    const buttonDisabled = button.disabled || button.getAttribute("aria-disabled") === "true";
+    console.log("Salvare applying coupon:", {
+      code,
+      inputValueBeforeClick: input.value,
+      buttonDisabled
+    });
     button.click();
+    const form = input.form;
+    if (form) {
+      form.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true })
+      );
+    }
     console.log(`Salvare applied coupon code: ${code}`);
     return true;
   }
+  function clearCouponInput(profile) {
+    const input = findCouponInputForProfile(profile);
+    if (!input) return;
+    input.focus();
+    input.value = "";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  var DISCOUNT_ERROR_PHRASES = [
+    "invalid",
+    "expired",
+    "not valid",
+    "couldn't be used",
+    "couldn\u2019t be used",
+    "not available",
+    "enter a valid discount code",
+    "is not a valid",
+    "discount code isn't valid",
+    "discount code isn\u2019t valid"
+  ];
+  var DISCOUNT_KEYWORDS = ["discount", "promo", "code", "coupon"];
+  function getVisibleBodyText() {
+    return (document.body.innerText ?? "").toLowerCase();
+  }
+  function getCouponInputValue(profile) {
+    const input = findCouponInputForProfile(profile);
+    return input?.value ?? "";
+  }
+  function codeAppearsAsAppliedDiscount(code, profile) {
+    const lowerCode = code.toLowerCase();
+    const all = Array.from(document.querySelectorAll("*"));
+    const inputValue = getCouponInputValue(profile).toLowerCase();
+    for (const element of all) {
+      if (element.tagName === "INPUT" || element.tagName === "SCRIPT" || element.tagName === "STYLE") {
+        continue;
+      }
+      if (element.children.length > 0) continue;
+      if (!isElementVisible(element)) continue;
+      const text = (element.textContent ?? "").trim().toLowerCase();
+      if (!text || !text.includes(lowerCode)) continue;
+      if (text === inputValue) continue;
+      let context = "";
+      let walker = element;
+      for (let depth = 0; depth < 4 && walker; depth++) {
+        context = (walker.textContent ?? "").toLowerCase();
+        if (DISCOUNT_KEYWORDS.some((keyword) => context.includes(keyword))) {
+          return true;
+        }
+        walker = walker.parentElement;
+      }
+    }
+    return false;
+  }
+  function discountErrorVisible() {
+    const bodyText = getVisibleBodyText();
+    return DISCOUNT_ERROR_PHRASES.some((phrase) => bodyText.includes(phrase));
+  }
+  async function waitForDiscountResult(code, timeoutMs = 12e3, profile) {
+    const POLL_MS = 300;
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (discountErrorVisible()) return "rejected";
+      if (codeAppearsAsAppliedDiscount(code, profile)) return "applied";
+      await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    }
+    return "timeout";
+  }
+  async function waitForTotalChange(profile, previousTotalCents, timeoutMs = 1e4) {
+    const POLL_MS = 300;
+    const start = Date.now();
+    let latestTotalCents = null;
+    while (Date.now() - start < timeoutMs) {
+      const scan2 = scanCheckoutPage(profile);
+      if (scan2.totalCents !== null) {
+        latestTotalCents = scan2.totalCents;
+        if (scan2.totalCents !== previousTotalCents) {
+          return scan2.totalCents;
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    }
+    return latestTotalCents;
+  }
+  function isCheckoutBusy(profile) {
+    const button = findApplyButtonForProfile(profile);
+    if (button) {
+      const buttonElement = button;
+      if (buttonElement.disabled) return true;
+      if (button.getAttribute("aria-disabled") === "true") return true;
+      if (button.getAttribute("aria-busy") === "true") return true;
+    }
+    const busyNearby = document.querySelectorAll(
+      '[aria-busy="true"], [role="progressbar"], .loading, .spinner, [data-loading="true"]'
+    );
+    if (busyNearby.length > 0) return true;
+    return false;
+  }
+  async function waitForCheckoutIdle(profile, timeoutMs = 1e4) {
+    const POLL_MS = 300;
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (!isCheckoutBusy(profile)) return;
+      await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    }
+  }
+  async function removeAppliedDiscounts(profile) {
+    const candidates = /* @__PURE__ */ new Set();
+    const shopifySelectors = [
+      "button[aria-label*='Remove']",
+      "button[aria-label*='remove']",
+      "[data-testid*='remove']",
+      "[data-testid*='discount']"
+    ];
+    for (const selector of shopifySelectors) {
+      const found = document.querySelectorAll(selector);
+      found.forEach((element) => candidates.add(element));
+    }
+    const interactive = Array.from(
+      document.querySelectorAll(
+        "button, a, [role='button']"
+      )
+    );
+    const removeKeywords = ["remove discount", "remove", "delete", "clear", "close"];
+    for (const element of interactive) {
+      const label = [
+        element.innerText,
+        element.getAttribute("aria-label"),
+        element.getAttribute("title")
+      ].filter(Boolean).join(" ").trim().toLowerCase();
+      if (!label) continue;
+      if (removeKeywords.some((keyword) => label.includes(keyword))) {
+        candidates.add(element);
+      }
+    }
+    let clicked = 0;
+    for (const element of candidates) {
+      if (!isElementVisible(element)) continue;
+      try {
+        element.click();
+        clicked++;
+      } catch (err) {
+        console.log("Salvare remove click failed:", err);
+      }
+    }
+    if (clicked > 0) {
+      console.log(`Salvare clicked ${clicked} possible remove button(s)`);
+      await waitForCheckoutIdle(profile, 1e4);
+    }
+  }
   async function findBestWorkingCoupon(codes, profile) {
+    const WAIT_MS = 1e4;
+    const baselineScan = scanCheckoutPage(profile);
+    const baselineTotalCents = baselineScan.totalCents;
+    console.log("Salvare baseline total:", baselineTotalCents);
+    if (baselineTotalCents === null) {
+      console.log(
+        "Salvare could not read baseline total; cannot judge improvements."
+      );
+      return null;
+    }
     const results = [];
     for (const code of codes) {
+      console.log("Salvare testing code:", code);
+      await removeAppliedDiscounts(profile);
+      const beforeClearScan = scanCheckoutPage(profile);
+      if (beforeClearScan.totalCents !== null && beforeClearScan.totalCents !== baselineTotalCents) {
+        console.log(
+          "Salvare waiting for total to return to baseline before:",
+          code
+        );
+        await waitForTotalChange(profile, beforeClearScan.totalCents, WAIT_MS);
+      }
+      clearCouponInput(profile);
+      await waitForCheckoutIdle(profile, WAIT_MS);
       applyCouponCode(code, profile);
-      await new Promise((resolve) => setTimeout(resolve, 1e3));
+      const discountResult = await waitForDiscountResult(code, 12e3, profile);
+      console.log("Salvare discount result:", { code, discountResult });
+      await waitForCheckoutIdle(profile, WAIT_MS);
+      if (discountResult === "applied") {
+        await waitForTotalChange(profile, baselineTotalCents, WAIT_MS);
+      }
       const scanAfterApply = scanCheckoutPage(profile);
-      if (scanAfterApply.totalCents !== null) {
-        results.push({
-          code,
-          totalCents: scanAfterApply.totalCents
-        });
+      console.log("Salvare after apply scan:", scanAfterApply);
+      const totalCents = scanAfterApply.totalCents;
+      const improved = discountResult === "applied" && totalCents !== null && totalCents < baselineTotalCents;
+      console.log("Salvare tested code result:", {
+        code,
+        totalCents,
+        improved,
+        discountResult
+      });
+      if (improved && totalCents !== null) {
+        results.push({ code, totalCents });
       }
     }
     if (results.length === 0) {
-      console.log("Salvare could not determine best coupon");
+      console.log("Salvare found no coupon that improved the total.");
       return null;
     }
     const best = results.reduce(
@@ -180,7 +476,11 @@
     );
     console.log("Salvare coupon test results:", results);
     console.log("Salvare best tested coupon:", best);
+    await removeAppliedDiscounts(profile);
+    clearCouponInput(profile);
+    await waitForCheckoutIdle(profile, WAIT_MS);
     applyCouponCode(best.code, profile);
+    await waitForCheckoutIdle(profile, WAIT_MS);
     console.log(`Salvare re-applied best coupon: ${best.code}`);
     return best;
   }
@@ -204,7 +504,7 @@
       if (!best) {
         sendResponse({
           success: false,
-          message: "Could not determine best coupon."
+          message: "No coupon improved the total."
         });
         return;
       }

@@ -45,14 +45,55 @@ function findMoneyAfterLabel(labels: string[]): string | null {
   return null;
 }
 
+const MONEY_REGEX = /(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+\.\d{2}|\d+)/g;
+
+function extractMoneyText(text: string): string | null {
+  if (!text) return null;
+  const matches = text.match(MONEY_REGEX);
+  if (!matches || matches.length === 0) return null;
+  return matches[matches.length - 1];
+}
+
+function isElementVisible(element: Element): boolean {
+  const htmlElement = element as HTMLElement;
+  if (
+    htmlElement.offsetWidth === 0 &&
+    htmlElement.offsetHeight === 0 &&
+    htmlElement.getClientRects().length === 0
+  ) {
+    return false;
+  }
+  const style = window.getComputedStyle(htmlElement);
+  return style.visibility !== "hidden" && style.display !== "none";
+}
+
 function extractMoneyFromElement(selector: string): string | null {
   const element = document.querySelector(selector);
   if (!element) return null;
-
   const text = (element as HTMLElement).innerText ?? element.textContent ?? "";
-  const moneyMatch = text.match(/\$?\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/);
+  return extractMoneyText(text);
+}
 
-  return moneyMatch?.[1] ?? null;
+function getVisibleTextAroundLabel(label: string): string | null {
+  const target = label.trim().toLowerCase();
+  const all = Array.from(document.querySelectorAll<HTMLElement>("*"));
+
+  for (const element of all) {
+    const ownText = (element.textContent ?? "").trim().toLowerCase();
+    if (ownText !== target) continue;
+    if (!isElementVisible(element)) continue;
+
+    let container: HTMLElement | null = element;
+    for (let depth = 0; depth < 6 && container; depth++) {
+      const containerText =
+        container.innerText ?? container.textContent ?? "";
+      const money = extractMoneyText(containerText);
+      if (money) return money;
+      container = container.parentElement;
+    }
+  }
+
+  return null;
 }
 
 function findPossibleSubtotalText(profile?: StoreProfile | null): string | null {
@@ -60,6 +101,13 @@ function findPossibleSubtotalText(profile?: StoreProfile | null): string | null 
     const fromSelector = extractMoneyFromElement(profile.selectors.subtotal);
     if (fromSelector) return fromSelector;
   }
+
+  const fromLabel =
+    getVisibleTextAroundLabel("Subtotal") ??
+    getVisibleTextAroundLabel("Cart subtotal") ??
+    getVisibleTextAroundLabel("Order subtotal");
+  if (fromLabel) return fromLabel;
+
   return findMoneyAfterLabel(["Subtotal", "Cart subtotal", "Order subtotal"]);
 }
 
@@ -68,6 +116,13 @@ function findPossibleTotalText(profile?: StoreProfile | null): string | null {
     const fromSelector = extractMoneyFromElement(profile.selectors.total);
     if (fromSelector) return fromSelector;
   }
+
+  const fromLabel =
+    getVisibleTextAroundLabel("Total") ??
+    getVisibleTextAroundLabel("Order total") ??
+    getVisibleTextAroundLabel("Grand total");
+  if (fromLabel) return fromLabel;
+
   return findMoneyAfterLabel(["Total", "Order total", "Grand total"]);
 }
 
@@ -131,28 +186,83 @@ function findCouponInputForProfile(
   return findCouponInputs()[0] ?? null;
 }
 
+function isButtonClickable(button: HTMLElement): boolean {
+  if (!isElementVisible(button)) return false;
+  const buttonElement = button as HTMLButtonElement;
+  if (buttonElement.disabled) return false;
+  if (button.getAttribute("aria-disabled") === "true") return false;
+  return true;
+}
+
+function findApplyButtonNearInput(
+  input: HTMLInputElement,
+): HTMLButtonElement | null {
+  const applyKeywords = ["apply discount", "apply coupon", "apply"];
+
+  let container: HTMLElement | null = input.parentElement;
+  for (let depth = 0; depth < 8 && container; depth++) {
+    const buttons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        "button, input[type='submit'], input[type='button']",
+      ),
+    );
+
+    for (const keyword of applyKeywords) {
+      const match = buttons.find((button) => {
+        if (!isButtonClickable(button)) return false;
+        const text = [
+          (button as HTMLElement).innerText,
+          button.getAttribute("value"),
+          button.getAttribute("aria-label"),
+          button.getAttribute("title"),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .trim()
+          .toLowerCase();
+        return text.includes(keyword);
+      });
+      if (match) return match;
+    }
+
+    container = container.parentElement;
+  }
+
+  return null;
+}
+
 function findApplyButtonForProfile(
   profile?: StoreProfile | null,
 ): HTMLElement | null {
+  const input = findCouponInputForProfile(profile);
+  if (input) {
+    const nearby = findApplyButtonNearInput(input);
+    if (nearby) return nearby;
+  }
+
   if (profile?.selectors?.applyButton) {
     const candidate = document.querySelector(
       profile.selectors.applyButton,
     ) as HTMLElement | null;
     if (candidate) return candidate;
   }
+
   return findApplyButtons()[0] ?? null;
 }
 
 function scanCheckoutPage(profile?: StoreProfile | null): SalvareCheckoutScan {
   const subtotalText = findPossibleSubtotalText(profile);
   const totalText = findPossibleTotalText(profile);
+  const totalCents = totalText ? parseMoneyToCents(totalText) : null;
+
+  console.log("Salvare total detection debug:", { totalText, totalCents });
 
   return {
     domain: window.location.hostname,
     subtotalText,
     subtotalCents: subtotalText ? parseMoneyToCents(subtotalText) : null,
     totalText,
-    totalCents: totalText ? parseMoneyToCents(totalText) : null,
+    totalCents,
     couponInputsFound: findCouponInputs().length,
     applyButtonsFound: findApplyButtons().length,
   };
@@ -184,28 +294,86 @@ function logPossibleCheckoutText(): void {
   console.log("Salvare possible checkout text:", interestingLines.slice(0, 50));
 }
 
+function setNativeInputValue(input: HTMLInputElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype,
+    "value",
+  )?.set;
+  if (setter) {
+    setter.call(input, value);
+  } else {
+    input.value = value;
+  }
+}
+
 function applyCouponCode(
   code: string,
   profile?: StoreProfile | null,
 ): boolean {
   const input = findCouponInputForProfile(profile);
-  const button = findApplyButtonForProfile(profile);
+  if (!input) {
+    console.log("Salvare could not find coupon input");
+    return false;
+  }
 
-  if (!input || !button) {
-    console.log("Salvare could not find coupon input or apply button");
+  const button =
+    findApplyButtonNearInput(input) ?? findApplyButtonForProfile(profile);
+
+  console.log("Salvare selected coupon input:", input);
+  console.log("Salvare selected apply button:", button);
+  console.log("Salvare apply button text:", button?.textContent);
+
+  if (!button) {
+    console.log("Salvare could not find apply button near coupon input");
     return false;
   }
 
   input.focus();
-  input.value = code;
+  setNativeInputValue(input, code);
 
   input.dispatchEvent(new Event("input", { bubbles: true }));
   input.dispatchEvent(new Event("change", { bubbles: true }));
+  input.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+  );
+  input.dispatchEvent(
+    new KeyboardEvent("keypress", { key: "Enter", bubbles: true }),
+  );
+  input.dispatchEvent(
+    new KeyboardEvent("keyup", { key: "Enter", bubbles: true }),
+  );
+
+  const buttonDisabled =
+    (button as HTMLButtonElement).disabled ||
+    button.getAttribute("aria-disabled") === "true";
+
+  console.log("Salvare applying coupon:", {
+    code,
+    inputValueBeforeClick: input.value,
+    buttonDisabled,
+  });
 
   button.click();
 
+  const form = input.form;
+  if (form) {
+    form.dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    );
+  }
+
   console.log(`Salvare applied coupon code: ${code}`);
   return true;
+}
+
+function clearCouponInput(profile?: StoreProfile | null): void {
+  const input = findCouponInputForProfile(profile);
+  if (!input) return;
+
+  input.focus();
+  input.value = "";
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.dispatchEvent(new Event("change", { bubbles: true }));
 }
 async function testCouponCodes(
   codes: string[],
@@ -224,41 +392,288 @@ async function testCouponCodes(
     });
   }
 }
+const DISCOUNT_ERROR_PHRASES = [
+  "invalid",
+  "expired",
+  "not valid",
+  "couldn't be used",
+  "couldn’t be used",
+  "not available",
+  "enter a valid discount code",
+  "is not a valid",
+  "discount code isn't valid",
+  "discount code isn’t valid",
+];
+
+const DISCOUNT_KEYWORDS = ["discount", "promo", "code", "coupon"];
+
+function getVisibleBodyText(): string {
+  return (document.body.innerText ?? "").toLowerCase();
+}
+
+function getCouponInputValue(profile?: StoreProfile | null): string {
+  const input = findCouponInputForProfile(profile);
+  return input?.value ?? "";
+}
+
+function codeAppearsAsAppliedDiscount(
+  code: string,
+  profile?: StoreProfile | null,
+): boolean {
+  const lowerCode = code.toLowerCase();
+
+  const all = Array.from(document.querySelectorAll<HTMLElement>("*"));
+  const inputValue = getCouponInputValue(profile).toLowerCase();
+
+  for (const element of all) {
+    if (
+      element.tagName === "INPUT" ||
+      element.tagName === "SCRIPT" ||
+      element.tagName === "STYLE"
+    ) {
+      continue;
+    }
+    if (element.children.length > 0) continue;
+    if (!isElementVisible(element)) continue;
+
+    const text = (element.textContent ?? "").trim().toLowerCase();
+    if (!text || !text.includes(lowerCode)) continue;
+    if (text === inputValue) continue;
+
+    let context = "";
+    let walker: HTMLElement | null = element;
+    for (let depth = 0; depth < 4 && walker; depth++) {
+      context = (walker.textContent ?? "").toLowerCase();
+      if (DISCOUNT_KEYWORDS.some((keyword) => context.includes(keyword))) {
+        return true;
+      }
+      walker = walker.parentElement;
+    }
+  }
+
+  return false;
+}
+
+function discountErrorVisible(): boolean {
+  const bodyText = getVisibleBodyText();
+  return DISCOUNT_ERROR_PHRASES.some((phrase) => bodyText.includes(phrase));
+}
+
+async function waitForDiscountResult(
+  code: string,
+  timeoutMs = 12000,
+  profile?: StoreProfile | null,
+): Promise<"applied" | "rejected" | "timeout"> {
+  const POLL_MS = 300;
+  const start = Date.now();
+
+  while (Date.now() - start < timeoutMs) {
+    if (discountErrorVisible()) return "rejected";
+    if (codeAppearsAsAppliedDiscount(code, profile)) return "applied";
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+  }
+
+  return "timeout";
+}
+
+async function waitForTotalChange(
+  profile: StoreProfile | null | undefined,
+  previousTotalCents: number | null,
+  timeoutMs = 10000,
+): Promise<number | null> {
+  const POLL_MS = 300;
+  const start = Date.now();
+  let latestTotalCents: number | null = null;
+
+  while (Date.now() - start < timeoutMs) {
+    const scan = scanCheckoutPage(profile);
+    if (scan.totalCents !== null) {
+      latestTotalCents = scan.totalCents;
+      if (scan.totalCents !== previousTotalCents) {
+        return scan.totalCents;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+  }
+
+  return latestTotalCents;
+}
+
+function isCheckoutBusy(profile?: StoreProfile | null): boolean {
+  const button = findApplyButtonForProfile(profile);
+  if (button) {
+    const buttonElement = button as HTMLButtonElement;
+    if (buttonElement.disabled) return true;
+    if (button.getAttribute("aria-disabled") === "true") return true;
+    if (button.getAttribute("aria-busy") === "true") return true;
+  }
+
+  const busyNearby = document.querySelectorAll(
+    '[aria-busy="true"], [role="progressbar"], .loading, .spinner, [data-loading="true"]',
+  );
+  if (busyNearby.length > 0) return true;
+
+  return false;
+}
+
+async function waitForCheckoutIdle(
+  profile?: StoreProfile | null,
+  timeoutMs = 10000,
+): Promise<void> {
+  const POLL_MS = 300;
+  const start = Date.now();
+
+  while (Date.now() - start < timeoutMs) {
+    if (!isCheckoutBusy(profile)) return;
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+  }
+}
+
+async function removeAppliedDiscounts(
+  profile?: StoreProfile | null,
+): Promise<void> {
+  const candidates = new Set<HTMLElement>();
+
+  const shopifySelectors = [
+    "button[aria-label*='Remove']",
+    "button[aria-label*='remove']",
+    "[data-testid*='remove']",
+    "[data-testid*='discount']",
+  ];
+  for (const selector of shopifySelectors) {
+    const found = document.querySelectorAll<HTMLElement>(selector);
+    found.forEach((element) => candidates.add(element));
+  }
+
+  const interactive = Array.from(
+    document.querySelectorAll<HTMLElement>(
+      "button, a, [role='button']",
+    ),
+  );
+  const removeKeywords = ["remove discount", "remove", "delete", "clear", "close"];
+
+  for (const element of interactive) {
+    const label = [
+      element.innerText,
+      element.getAttribute("aria-label"),
+      element.getAttribute("title"),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim()
+      .toLowerCase();
+
+    if (!label) continue;
+    if (removeKeywords.some((keyword) => label.includes(keyword))) {
+      candidates.add(element);
+    }
+  }
+
+  let clicked = 0;
+  for (const element of candidates) {
+    if (!isElementVisible(element)) continue;
+    try {
+      element.click();
+      clicked++;
+    } catch (err) {
+      console.log("Salvare remove click failed:", err);
+    }
+  }
+
+  if (clicked > 0) {
+    console.log(`Salvare clicked ${clicked} possible remove button(s)`);
+    await waitForCheckoutIdle(profile, 10000);
+  }
+}
+
 async function findBestWorkingCoupon(
   codes: string[],
   profile?: StoreProfile | null,
 ): Promise<{ code: string; totalCents: number } | null> {
+  const WAIT_MS = 10000;
+
+  const baselineScan = scanCheckoutPage(profile);
+  const baselineTotalCents = baselineScan.totalCents;
+
+  console.log("Salvare baseline total:", baselineTotalCents);
+
+  if (baselineTotalCents === null) {
+    console.log(
+      "Salvare could not read baseline total; cannot judge improvements.",
+    );
+    return null;
+  }
 
   const results: { code: string; totalCents: number }[] = [];
 
   for (const code of codes) {
+    console.log("Salvare testing code:", code);
+
+    await removeAppliedDiscounts(profile);
+
+    const beforeClearScan = scanCheckoutPage(profile);
+    if (
+      beforeClearScan.totalCents !== null &&
+      beforeClearScan.totalCents !== baselineTotalCents
+    ) {
+      console.log(
+        "Salvare waiting for total to return to baseline before:",
+        code,
+      );
+      await waitForTotalChange(profile, beforeClearScan.totalCents, WAIT_MS);
+    }
+
+    clearCouponInput(profile);
+    await waitForCheckoutIdle(profile, WAIT_MS);
+
     applyCouponCode(code, profile);
 
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const discountResult = await waitForDiscountResult(code, 12000, profile);
+    console.log("Salvare discount result:", { code, discountResult });
+
+    await waitForCheckoutIdle(profile, WAIT_MS);
+    if (discountResult === "applied") {
+      await waitForTotalChange(profile, baselineTotalCents, WAIT_MS);
+    }
 
     const scanAfterApply = scanCheckoutPage(profile);
+    console.log("Salvare after apply scan:", scanAfterApply);
 
-    if (scanAfterApply.totalCents !== null) {
-      results.push({
-        code,
-        totalCents: scanAfterApply.totalCents,
-      });
+    const totalCents = scanAfterApply.totalCents;
+    const improved =
+      discountResult === "applied" &&
+      totalCents !== null &&
+      totalCents < baselineTotalCents;
+
+    console.log("Salvare tested code result:", {
+      code,
+      totalCents,
+      improved,
+      discountResult,
+    });
+
+    if (improved && totalCents !== null) {
+      results.push({ code, totalCents });
     }
   }
 
   if (results.length === 0) {
-    console.log("Salvare could not determine best coupon");
+    console.log("Salvare found no coupon that improved the total.");
     return null;
   }
 
   const best = results.reduce((lowest, current) =>
-    current.totalCents < lowest.totalCents ? current : lowest
+    current.totalCents < lowest.totalCents ? current : lowest,
   );
 
   console.log("Salvare coupon test results:", results);
   console.log("Salvare best tested coupon:", best);
 
+  await removeAppliedDiscounts(profile);
+  clearCouponInput(profile);
+  await waitForCheckoutIdle(profile, WAIT_MS);
   applyCouponCode(best.code, profile);
+  await waitForCheckoutIdle(profile, WAIT_MS);
   console.log(`Salvare re-applied best coupon: ${best.code}`);
 
   return best;
@@ -289,7 +704,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!best) {
       sendResponse({
         success: false,
-        message: "Could not determine best coupon.",
+        message: "No coupon improved the total.",
       });
       return;
     }
