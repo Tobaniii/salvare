@@ -7,6 +7,12 @@
       statusElement.textContent = message;
     }
   }
+  function disableButton() {
+    if (button) button.disabled = true;
+  }
+  function enableButton() {
+    if (button) button.disabled = false;
+  }
   function formatDollars(cents) {
     return `$${(cents / 100).toFixed(2)}`;
   }
@@ -80,36 +86,56 @@ ${response.message}`;
   button?.addEventListener("click", async () => {
     console.log("Salvare popup button clicked");
     setStatus("Scanning checkout...");
-    const [tab] = await chrome.tabs.query({
-      active: true,
-      currentWindow: true
-    });
-    if (!tab.id) {
+    disableButton();
+    let tabId;
+    try {
+      const tabs = await chrome.tabs.query({
+        active: true,
+        currentWindow: true
+      });
+      tabId = tabs[0]?.id;
+    } catch (err) {
+      console.error("Salvare popup tabs.query failed:", err);
+      setStatus("Could not connect to page.");
+      enableButton();
+      return;
+    }
+    if (!tabId) {
       setStatus("No active tab found.");
+      enableButton();
       return;
     }
     setStatus("Testing coupons...");
-    chrome.tabs.sendMessage(
-      tab.id,
-      { type: "SALVARE_FIND_BEST_COUPON" },
-      (response) => {
-        if (chrome.runtime.lastError) {
-          console.error(chrome.runtime.lastError.message);
-          setStatus("Could not connect to page.");
-          return;
-        }
-        if (!response?.success) {
-          setStatus(response?.message ?? "No coupon found.");
-          return;
-        }
-        setStatus(
-          `Best code: ${response.bestCode}
+    try {
+      chrome.tabs.sendMessage(
+        tabId,
+        { type: "SALVARE_FIND_BEST_COUPON" },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            console.error(chrome.runtime.lastError.message);
+            setStatus("Could not connect to page.");
+            enableButton();
+            return;
+          }
+          if (!response?.success) {
+            setStatus(response?.message ?? "No coupon found.");
+            enableButton();
+            return;
+          }
+          setStatus(
+            `Best code: ${response.bestCode}
 Final total: ${formatDollars(
-            response.totalCents
-          )}
+              response.totalCents
+            )}
 You saved: ${formatDollars(response.savingsCents)}`
-        );
-      }
-    );
+          );
+          enableButton();
+        }
+      );
+    } catch (err) {
+      console.error("Salvare popup sendMessage failed:", err);
+      setStatus("Could not connect to page.");
+      enableButton();
+    }
   });
 })();
