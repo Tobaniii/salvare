@@ -2,6 +2,10 @@
 
 Salvare is a React + TypeScript app and a companion Chrome extension that finds the best coupon for a shopping cart. The web app demonstrates the underlying engine on a local test checkout; the extension applies the same idea to real merchant checkouts by testing candidate codes and keeping the one that actually lowers the total.
 
+## Demo
+
+[Watch the Salvare demo](docs/assets/salvare-demo.mov)
+
 ## Preview
 
 ![App Screenshot](./src/assets/screenshot.png)
