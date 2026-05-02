@@ -75,9 +75,6 @@ function getAdminHtml() {
 }
 
 // server/results.ts
-import { readFileSync as readFileSync2, renameSync, writeFileSync } from "node:fs";
-import { dirname as dirname2, join as join2 } from "node:path";
-import { fileURLToPath as fileURLToPath2 } from "node:url";
 function validateResultBody(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return { ok: false, error: "body must be an object" };
@@ -112,59 +109,6 @@ function validateResultBody(body) {
     savingsCents: b.savingsCents,
     finalTotalCents: b.finalTotalCents
   };
-}
-var runtimeResults = [];
-var RESULTS_FILE_PATH = join2(
-  dirname2(fileURLToPath2(import.meta.url)),
-  "coupon-results.json"
-);
-function isValidResultRecord(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const r = value;
-  return typeof r.domain === "string" && typeof r.code === "string" && typeof r.success === "boolean" && typeof r.savingsCents === "number" && typeof r.finalTotalCents === "number" && typeof r.testedAt === "string";
-}
-function persistResultsToDisk() {
-  const tmpPath = `${RESULTS_FILE_PATH}.tmp`;
-  writeFileSync(
-    tmpPath,
-    JSON.stringify({ results: runtimeResults }, null, 2) + "\n",
-    "utf8"
-  );
-  renameSync(tmpPath, RESULTS_FILE_PATH);
-}
-var persistFn = persistResultsToDisk;
-function loadResultsFromDisk() {
-  try {
-    const raw = readFileSync2(RESULTS_FILE_PATH, "utf8");
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && Array.isArray(parsed.results) && parsed.results.every(isValidResultRecord)) {
-      runtimeResults = parsed.results;
-    }
-  } catch {
-  }
-}
-function appendResult(record, now = () => /* @__PURE__ */ new Date()) {
-  const stored = {
-    ...record,
-    testedAt: now().toISOString()
-  };
-  runtimeResults.push(stored);
-  persistFn();
-  return stored;
-}
-function getResultsForDomain(domain) {
-  const trimmed = domain.trim();
-  return runtimeResults.filter((r) => r.domain === trimmed);
-}
-function deleteResultsForDomain(domain) {
-  const trimmed = domain.trim();
-  const before = runtimeResults.length;
-  runtimeResults = runtimeResults.filter((r) => r.domain !== trimmed);
-  const deletedCount = before - runtimeResults.length;
-  if (deletedCount > 0) {
-    persistFn();
-  }
-  return { domain: trimmed, deletedCount };
 }
 
 // server/cors.ts
@@ -289,8 +233,8 @@ function buildCouponStats(codes, history) {
 
 // server/db.ts
 import Database from "better-sqlite3";
-import { dirname as dirname3, join as join3 } from "node:path";
-import { fileURLToPath as fileURLToPath3 } from "node:url";
+import { dirname as dirname2, join as join2 } from "node:path";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
 var SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS stores (
     id INTEGER PRIMARY KEY,
@@ -334,16 +278,16 @@ function openDatabase(path) {
   return db2;
 }
 function defaultDatabasePath() {
-  return join3(dirname3(fileURLToPath3(import.meta.url)), "salvare.db");
+  return join2(dirname2(fileURLToPath2(import.meta.url)), "salvare.db");
 }
 
 // server/db-bootstrap.ts
-import { readFileSync as readFileSync3 } from "node:fs";
-import { dirname as dirname4, join as join4 } from "node:path";
-import { fileURLToPath as fileURLToPath4 } from "node:url";
-var SERVER_DIR = dirname4(fileURLToPath4(import.meta.url));
-var SEED_PATH = join4(SERVER_DIR, "coupons.seed.json");
-var RESULTS_PATH = join4(SERVER_DIR, "coupon-results.json");
+import { readFileSync as readFileSync2 } from "node:fs";
+import { dirname as dirname3, join as join3 } from "node:path";
+import { fileURLToPath as fileURLToPath3 } from "node:url";
+var SERVER_DIR = dirname3(fileURLToPath3(import.meta.url));
+var SEED_PATH = join3(SERVER_DIR, "coupons.seed.json");
+var RESULTS_PATH = join3(SERVER_DIR, "coupon-results.json");
 function importSeed(db2, seed, now = (/* @__PURE__ */ new Date()).toISOString()) {
   const storeInsert = db2.prepare(
     `INSERT OR IGNORE INTO stores (domain, created_at, updated_at) VALUES (?, ?, ?)`
@@ -372,7 +316,7 @@ function importSeed(db2, seed, now = (/* @__PURE__ */ new Date()).toISOString())
 }
 function readSeedFromDisk() {
   try {
-    const raw = readFileSync3(SEED_PATH, "utf8");
+    const raw = readFileSync2(SEED_PATH, "utf8");
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       return parsed;
@@ -380,6 +324,17 @@ function readSeedFromDisk() {
   } catch {
   }
   return {};
+}
+function readResultsFromDisk() {
+  try {
+    const raw = readFileSync2(RESULTS_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && Array.isArray(parsed.results)) {
+      return parsed;
+    }
+  } catch {
+  }
+  return { results: [] };
 }
 
 // server/db-coupons.ts
@@ -463,6 +418,117 @@ function bootstrapIfEmpty(db2, seedOverride) {
   };
 }
 
+// server/db-results.ts
+function nowIso2() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+function rowToRecord(row) {
+  return {
+    domain: row.domain,
+    code: row.code,
+    success: row.success === 1,
+    savingsCents: row.savings_cents,
+    finalTotalCents: row.final_total_cents,
+    testedAt: row.tested_at
+  };
+}
+function appendResultRecord(db2, record, now = () => /* @__PURE__ */ new Date()) {
+  const testedAt = now().toISOString();
+  const upsertStore = db2.prepare(
+    `INSERT INTO stores (domain, created_at, updated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(domain) DO UPDATE SET updated_at = excluded.updated_at`
+  );
+  const lookupStore = db2.prepare(`SELECT id FROM stores WHERE domain = ?`);
+  const insertResult = db2.prepare(
+    `INSERT INTO coupon_results
+       (store_id, code, success, savings_cents, final_total_cents, tested_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  );
+  const txn = db2.transaction(() => {
+    upsertStore.run(record.domain, testedAt, testedAt);
+    const storeRow = lookupStore.get(record.domain);
+    if (!storeRow) {
+      throw new Error("store row missing after upsert");
+    }
+    insertResult.run(
+      storeRow.id,
+      record.code,
+      record.success ? 1 : 0,
+      record.savingsCents,
+      record.finalTotalCents,
+      testedAt
+    );
+  });
+  txn();
+  return { ...record, testedAt };
+}
+function getResultsForDomain(db2, domain) {
+  const trimmed = domain.trim();
+  const rows = db2.prepare(
+    `SELECT s.domain AS domain,
+              r.code AS code,
+              r.success AS success,
+              r.savings_cents AS savings_cents,
+              r.final_total_cents AS final_total_cents,
+              r.tested_at AS tested_at
+         FROM coupon_results r
+         JOIN stores s ON s.id = r.store_id
+        WHERE s.domain = ?
+        ORDER BY r.id ASC`
+  ).all(trimmed);
+  return rows.map(rowToRecord);
+}
+function deleteResultsForDomain(db2, domain) {
+  const trimmed = domain.trim();
+  const result = db2.prepare(
+    `DELETE FROM coupon_results
+        WHERE store_id IN (SELECT id FROM stores WHERE domain = ?)`
+  ).run(trimmed);
+  return { domain: trimmed, deletedCount: result.changes };
+}
+function bootstrapResultsIfEmpty(db2, envelopeOverride) {
+  const count = db2.prepare(`SELECT COUNT(*) AS c FROM coupon_results`).get().c;
+  if (count > 0) {
+    return { bootstrapped: false, resultsImported: 0 };
+  }
+  const envelope = envelopeOverride ?? readResultsFromDisk();
+  const records = Array.isArray(envelope?.results) ? envelope.results : [];
+  if (records.length === 0) {
+    return { bootstrapped: false, resultsImported: 0 };
+  }
+  const now = nowIso2();
+  const upsertStore = db2.prepare(
+    `INSERT OR IGNORE INTO stores (domain, created_at, updated_at)
+       VALUES (?, ?, ?)`
+  );
+  const lookupStore = db2.prepare(`SELECT id FROM stores WHERE domain = ?`);
+  const insertResult = db2.prepare(
+    `INSERT INTO coupon_results
+       (store_id, code, success, savings_cents, final_total_cents, tested_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  );
+  let resultsImported = 0;
+  const txn = db2.transaction(() => {
+    for (const r of records) {
+      upsertStore.run(r.domain, now, now);
+      const storeRow = lookupStore.get(r.domain);
+      if (!storeRow) continue;
+      insertResult.run(
+        storeRow.id,
+        r.code,
+        r.success ? 1 : 0,
+        r.savingsCents,
+        r.finalTotalCents,
+        r.testedAt
+      );
+      resultsImported++;
+    }
+  });
+  txn();
+  return { bootstrapped: true, resultsImported };
+}
+
 // server/index.ts
 var DEFAULT_PORT = 4123;
 var port = Number(process.env.PORT ?? DEFAULT_PORT);
@@ -473,7 +539,12 @@ if (bootstrapStats.bootstrapped) {
     `Salvare bootstrap on startup: imported ${bootstrapStats.storesImported} store(s) and ${bootstrapStats.codesImported} code(s) from coupons.seed.json`
   );
 }
-loadResultsFromDisk();
+var resultsBootstrapStats = bootstrapResultsIfEmpty(db);
+if (resultsBootstrapStats.bootstrapped) {
+  console.log(
+    `Salvare bootstrap on startup: imported ${resultsBootstrapStats.resultsImported} result record(s) from coupon-results.json`
+  );
+}
 function sendJson(res, status, body) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json");
@@ -515,7 +586,7 @@ async function handleRequest(req, res) {
     const response = buildCouponResponse(domain, codes);
     const ranked = rankCandidateCodes(
       response.candidateCodes,
-      getResultsForDomain(domain)
+      getResultsForDomain(db, domain)
     );
     sendJson(res, 200, { ...response, candidateCodes: ranked });
     return;
@@ -538,7 +609,7 @@ async function handleRequest(req, res) {
       return;
     }
     const codes = getCandidateCodesForDomain(db, validation.domain);
-    const history = getResultsForDomain(validation.domain);
+    const history = getResultsForDomain(db, validation.domain);
     sendJson(res, 200, {
       domain: validation.domain,
       codes: buildCouponStats(codes, history)
@@ -582,7 +653,7 @@ async function handleRequest(req, res) {
       sendJson(res, 400, { error: validation.error });
       return;
     }
-    const stored = appendResult({
+    const stored = appendResultRecord(db, {
       domain: validation.domain,
       code: validation.code,
       success: validation.success,
@@ -598,7 +669,7 @@ async function handleRequest(req, res) {
       sendJson(res, 400, { error: validation.error });
       return;
     }
-    const result = deleteResultsForDomain(validation.domain);
+    const result = deleteResultsForDomain(db, validation.domain);
     sendJson(res, 200, result);
     return;
   }
@@ -608,7 +679,7 @@ async function handleRequest(req, res) {
       sendJson(res, 400, { error: validation.error });
       return;
     }
-    const records = getResultsForDomain(validation.domain).map((r) => ({
+    const records = getResultsForDomain(db, validation.domain).map((r) => ({
       code: r.code,
       success: r.success,
       savingsCents: r.savingsCents,

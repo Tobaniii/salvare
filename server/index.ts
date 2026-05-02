@@ -5,13 +5,7 @@ import {
   validateDomainParam,
 } from "./coupons";
 import { getAdminHtml } from "./admin";
-import {
-  appendResult,
-  deleteResultsForDomain,
-  getResultsForDomain,
-  loadResultsFromDisk,
-  validateResultBody,
-} from "./results";
+import { validateResultBody } from "./results";
 import { buildCorsHeaders } from "./cors";
 import { rankCandidateCodes } from "./ranking";
 import { buildCouponStats } from "./stats";
@@ -23,6 +17,12 @@ import {
   getCandidateCodesForDomain,
   upsertCouponCodes,
 } from "./db-coupons";
+import {
+  appendResultRecord,
+  bootstrapResultsIfEmpty,
+  deleteResultsForDomain,
+  getResultsForDomain,
+} from "./db-results";
 
 const DEFAULT_PORT = 4123;
 const port = Number(process.env.PORT ?? DEFAULT_PORT);
@@ -34,7 +34,12 @@ if (bootstrapStats.bootstrapped) {
     `Salvare bootstrap on startup: imported ${bootstrapStats.storesImported} store(s) and ${bootstrapStats.codesImported} code(s) from coupons.seed.json`,
   );
 }
-loadResultsFromDisk();
+const resultsBootstrapStats = bootstrapResultsIfEmpty(db);
+if (resultsBootstrapStats.bootstrapped) {
+  console.log(
+    `Salvare bootstrap on startup: imported ${resultsBootstrapStats.resultsImported} result record(s) from coupon-results.json`,
+  );
+}
 
 function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
@@ -83,7 +88,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     const response = buildCouponResponse(domain, codes);
     const ranked = rankCandidateCodes(
       response.candidateCodes,
-      getResultsForDomain(domain),
+      getResultsForDomain(db, domain),
     );
     sendJson(res, 200, { ...response, candidateCodes: ranked });
     return;
@@ -108,7 +113,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       return;
     }
     const codes = getCandidateCodesForDomain(db, validation.domain);
-    const history = getResultsForDomain(validation.domain);
+    const history = getResultsForDomain(db, validation.domain);
     sendJson(res, 200, {
       domain: validation.domain,
       codes: buildCouponStats(codes, history),
@@ -157,7 +162,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       return;
     }
 
-    const stored = appendResult({
+    const stored = appendResultRecord(db, {
       domain: validation.domain,
       code: validation.code,
       success: validation.success,
@@ -174,7 +179,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       sendJson(res, 400, { error: validation.error });
       return;
     }
-    const result = deleteResultsForDomain(validation.domain);
+    const result = deleteResultsForDomain(db, validation.domain);
     sendJson(res, 200, result);
     return;
   }
@@ -186,7 +191,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       return;
     }
 
-    const records = getResultsForDomain(validation.domain).map((r) => ({
+    const records = getResultsForDomain(db, validation.domain).map((r) => ({
       code: r.code,
       success: r.success,
       savingsCents: r.savingsCents,

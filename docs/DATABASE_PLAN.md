@@ -108,6 +108,18 @@ Phase 1 has landed: the SQLite dependency and schema setup are in place. No rout
 
 Phase 2 will start using this connection from the existing route handlers.
 
+### Phase 4 — result history on SQLite
+
+Coupon result history reads and writes now go through SQLite at runtime via `server/db-results.ts`. The JSON file is no longer the runtime source of truth.
+
+- On startup, after the seed bootstrap, the server runs `bootstrapResultsIfEmpty`. If `coupon_results` is empty, the contents of `server/coupon-results.json` are imported once. Subsequent restarts no-op, so newly written records survive.
+- `POST /results`, `GET /results?domain=…`, and `DELETE /results?domain=…` go through the SQLite repository. Records persist across server restarts (verified by `server/db-results.test.ts`'s file-backed reopen test, and by a manual restart check).
+- Append for an unseeded domain is supported: the repository `INSERT OR IGNORE`s a `stores` row before inserting the result row, matching the prior JSON-backed behavior of accepting any domain.
+- `DELETE /results` removes only `coupon_results` rows for the domain — the `stores` row and any `coupon_codes` are preserved.
+- `server/coupon-results.json` remains a bootstrap source. Existing pure helpers (`validateResultBody`, `rankCandidateCodes`, `buildCouponStats`) are unchanged.
+- API response shapes are unchanged. Ranking and admin stats behavior are unchanged.
+- The explicit `npm run db:bootstrap` CLI continues to clear and reimport result history from the JSON file for deliberate resets.
+
 ### Phase 3 — coupon data on SQLite
 
 Coupon seed/admin reads and writes now go through SQLite at runtime via `server/db-coupons.ts`. Result history remains JSON-backed in this milestone.
