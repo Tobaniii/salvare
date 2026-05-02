@@ -1,6 +1,8 @@
 # Salvare Coupon API — Local Server
 
-A minimal Node + TypeScript prototype of the coupon API described in `docs/API_DESIGN.md`. This is the v0.2.0 milestone-1 backend. The Chrome extension is **not** wired to it yet; v0.1.0 still ships with the mock provider in `extension/couponProvider.ts`.
+A minimal Node + TypeScript prototype of the coupon API described in `docs/API_DESIGN.md`. The Chrome extension is wired to it via `extension/couponProvider.ts` (`backend-with-fallback` mode by default) and `extension/resultReporter.ts`.
+
+Runtime persistence is SQLite at `server/salvare.db`. The two JSON files in `server/` are bootstrap-only sources used to populate a fresh database — see [Local database / reset](#local-database--reset) below.
 
 ## Run it locally
 
@@ -14,6 +16,39 @@ Override the port with the `PORT` env var if 4123 is in use:
 ```bash
 PORT=4200 npm run start:server
 ```
+
+## Local database / reset
+
+Salvare stores all runtime data — coupon seed/admin entries and reported result history — in a single SQLite file at `server/salvare.db`. This file is **local runtime data and is gitignored; do not commit it.** The same applies to SQLite's sidecar files (`-journal`, `-wal`, `-shm`).
+
+Bootstrap sources (kept in the repo for fresh dev environments):
+
+- [`server/coupons.seed.json`](../server/coupons.seed.json) — bootstrap seed for `stores` + `coupon_codes`.
+- [`server/coupon-results.json`](../server/coupon-results.json) — bootstrap seed for `coupon_results`.
+
+After bootstrap, admin edits (`POST/DELETE /admin/coupons`) and reported results (`POST /results`) persist in `server/salvare.db`, not in the JSON files.
+
+### First-time setup on a fresh checkout
+
+```bash
+npm run db:init        # builds and runs server/db-init.js — creates tables in server/salvare.db
+npm run db:bootstrap   # imports both JSON files into the new database
+npm run start:server
+```
+
+You can also skip `db:init` and just start the server: `openDatabase` ensures the schema, and `bootstrapIfEmpty` / `bootstrapResultsIfEmpty` import the JSON files automatically when the corresponding tables are empty.
+
+### Reset local data
+
+To wipe all local runtime data and start over from the bootstrap JSON files:
+
+```bash
+rm -f server/salvare.db server/salvare.db-journal server/salvare.db-wal server/salvare.db-shm
+npm run db:init
+npm run db:bootstrap
+```
+
+Note: re-running `npm run db:bootstrap` against an already-populated database **adds** new domains/codes from the seed JSON via `INSERT OR IGNORE` (existing rows are not removed or rewritten) and **clears + reimports** the entire `coupon_results` table from the result-history JSON. If you want a true reset, delete the DB file first.
 
 ## Endpoint
 
@@ -62,7 +97,7 @@ curl 'http://localhost:4123/coupons?domain=example.com'
 - `salvare-test-store.myshopify.com`
 - `salvare-woo-test.local`
 
-These match the candidate codes the v0.1.0 extension already tests via its mock provider. The seed lives in [`server/coupons.seed.json`](../server/coupons.seed.json); add or edit domains there without touching TypeScript. esbuild inlines the JSON during `npm run build:server`, so re-run that script (and restart the server) to pick up edits. The seed is duplicated from `extension/storeProfiles.ts` on purpose; a later milestone will collapse the two sources once the extension is wired to the backend.
+These match the candidate codes the extension tests via its mock provider. The bootstrap seed lives in [`server/coupons.seed.json`](../server/coupons.seed.json) and is imported into SQLite on first run. After bootstrap, runtime reads come from SQLite (`server/salvare.db`) and runtime edits should go through the admin UI / `POST /admin/coupons` — they land directly in the database. To add a new bootstrap entry for fresh dev environments, edit the JSON and either delete `server/salvare.db` (next start re-bootstraps) or run `npm run db:bootstrap` (adds new domains/codes via `INSERT OR IGNORE`; does not remove or rename existing rows). The seed is duplicated from `extension/storeProfiles.ts` on purpose; a later milestone will collapse the two sources.
 
 When local result history exists for the requested domain, the backend orders `candidateCodes` returned by `GET /coupons` by historical performance: codes with at least one successful test rank first (highest average `savingsCents`, with most recent success as a tiebreaker), then codes with no history in seed order, then failure-only codes. The response shape is unchanged; ranking only reorders existing seed/admin codes and never adds or removes them.
 
@@ -82,7 +117,7 @@ The page is `server/admin.html`, served as-is; it sits next to the bundled `serv
 
 ## Admin endpoints
 
-Local-only endpoints for inspecting and updating the seeded coupon map at runtime. Useful in dev so you don't have to edit `server/coupons.seed.json` and rebuild the bundle to test new domains.
+Local-only endpoints for inspecting and updating the coupon map at runtime. Edits go directly into SQLite (`server/salvare.db`) and survive restarts; the bootstrap JSON file is not touched.
 
 ### List all seeded coupons
 
@@ -116,7 +151,7 @@ curl -X POST http://localhost:4123/admin/coupons \
 }
 ```
 
-The server trims whitespace and removes duplicate codes before saving. The change is written back to `server/coupons.seed.json` (atomic temp + rename) so it survives restarts. Validation rules:
+The server trims whitespace and removes duplicate codes before saving. The change is written to `server/salvare.db` (a single SQLite transaction that upserts the store row, deletes existing codes for the domain, then inserts the new code list) so it survives restarts. The bootstrap JSON file is not modified. Validation rules:
 
 - `domain` must be a non-empty string.
 - `candidateCodes` must be an array of non-empty strings.
@@ -167,9 +202,9 @@ curl -X DELETE 'http://localhost:4123/admin/coupons?domain=example.com'
 
 ## Coupon result history
 
-Local-only endpoints for recording and reading coupon test outcomes. The extension is **not** wired to these yet; v0.4.0 milestone 1 only adds the backend surface.
+Local-only endpoints for recording and reading coupon test outcomes. The extension reports results via `extension/resultReporter.ts` (best-effort, fire-and-forget).
 
-Result history persists to `server/coupon-results.json` (`{ "results": [...] }` envelope).
+Result history persists in SQLite (`server/salvare.db`). [`server/coupon-results.json`](../server/coupon-results.json) (`{ "results": [...] }` envelope) is a bootstrap-only source — its contents are imported once into SQLite on first run, and runtime writes do not modify it.
 
 ### Record a result
 

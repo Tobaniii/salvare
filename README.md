@@ -43,7 +43,7 @@ A small prototype backend lives in `server/` and runs on `http://localhost:4123`
 - Candidate-code provider: `couponProvider.ts` calls `GET /coupons?domain=…` first and falls back to mock/profile candidate codes when the backend is unreachable, slow, or returns an unexpected shape. When local result history exists, the backend orders the returned codes by past performance — successful codes first, then no-history codes in seed order, then failure-only codes; ranking never adds or removes codes.
 - Admin page: open `http://localhost:4123/admin` to view, add, update, or delete seeded domains. Backed by `GET/POST/DELETE /admin/coupons`.
 - Result history: the extension fires a best-effort `POST /results` after each tested coupon. `GET /results?domain=…` returns the recorded outcomes.
-- Seed data is editable in [`server/coupons.seed.json`](server/coupons.seed.json); result history persists to [`server/coupon-results.json`](server/coupon-results.json).
+- Runtime persistence is SQLite at `server/salvare.db` (local, gitignored — do not commit). [`server/coupons.seed.json`](server/coupons.seed.json) and [`server/coupon-results.json`](server/coupon-results.json) are bootstrap-only sources used to populate a fresh database via `npm run db:bootstrap`. After bootstrap, admin edits and reported results live in SQLite.
 - No auth. The endpoints are intended for local development only.
 
 See [`docs/SERVER.md`](docs/SERVER.md), [`docs/SEED_DATA.md`](docs/SEED_DATA.md), and [`docs/API_DESIGN.md`](docs/API_DESIGN.md) for details.
@@ -60,8 +60,9 @@ See [`docs/SERVER.md`](docs/SERVER.md), [`docs/SEED_DATA.md`](docs/SEED_DATA.md)
 - Result reporter — best-effort fire-and-forget POST ([extension/resultReporter.ts](extension/resultReporter.ts)).
 - Local backend server — `GET/POST/DELETE` for coupons and results ([server/index.ts](server/index.ts)).
 - Admin page — local UI for managing seeded coupon codes ([server/admin.html](server/admin.html)).
-- Seed data — editable JSON of candidate codes per domain ([server/coupons.seed.json](server/coupons.seed.json)).
-- Result history — local JSON of tested coupon outcomes ([server/coupon-results.json](server/coupon-results.json)).
+- Runtime database — local SQLite store for coupon seeds, admin edits, and result history (`server/salvare.db`, gitignored — do not commit).
+- Bootstrap seed data — JSON of candidate codes per domain, imported into SQLite on first run ([server/coupons.seed.json](server/coupons.seed.json)).
+- Bootstrap result history — JSON of tested coupon outcomes, imported into SQLite on first run ([server/coupon-results.json](server/coupon-results.json)).
 - Ranking helper — orders candidate codes by past performance ([server/ranking.ts](server/ranking.ts)).
 
 ### How a coupon test runs
@@ -123,6 +124,6 @@ A local development backend prototype lives in `server/`. The extension's `coupo
 
 ## Current limitations
 
-- Candidate coupon codes are seeded by hand in [`server/coupons.seed.json`](server/coupons.seed.json) and `extension/storeProfiles.ts`. The backend is local-only and there is no hosted coupon API or automated coupon discovery.
+- Candidate coupon codes are seeded by hand in [`server/coupons.seed.json`](server/coupons.seed.json) (imported into SQLite once on first run) and `extension/storeProfiles.ts`. After bootstrap, runtime additions/edits go through the admin UI and persist in `server/salvare.db`. The backend is local-only and there is no hosted coupon API or automated coupon discovery.
 - Store support depends on the selectors and keyword heuristics in the profile and content script. A new merchant generally needs a new profile entry, and possibly tuned selectors, before testing works reliably.
 - Result reporting and admin endpoints have no auth; they are intended for local development only.

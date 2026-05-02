@@ -108,6 +108,17 @@ Phase 1 has landed: the SQLite dependency and schema setup are in place. No rout
 
 Phase 2 will start using this connection from the existing route handlers.
 
+### Phase 5 — JSON as bootstrap only (docs cleanup)
+
+The runtime is fully on SQLite. Both JSON files in `server/` are now bootstrap-only sources, kept in the repo so a fresh checkout can populate a database from a reviewable, committed snapshot.
+
+- `server/salvare.db` (and the SQLite sidecar files `-journal`, `-wal`, `-shm`) is local runtime data, gitignored — do not commit it.
+- [`server/coupons.seed.json`](../server/coupons.seed.json) and [`server/coupon-results.json`](../server/coupon-results.json) are imported into SQLite on first run and via `npm run db:bootstrap`. Runtime admin edits and reported results persist in SQLite, not in the JSON files.
+- Reset recipe: `rm -f server/salvare.db && npm run db:init && npm run db:bootstrap`. Documented in [`docs/SERVER.md`](./SERVER.md#local-database--reset).
+- Quirk to be aware of: re-running `npm run db:bootstrap` on an already-populated DB **adds** new seed rows via `INSERT OR IGNORE` (does not remove or rewrite existing rows) and **clears + reimports** the entire `coupon_results` table. For a true reset of seed/admin data, delete the DB file first.
+- README, `docs/SERVER.md`, `docs/SEED_DATA.md`, and `docs/API_DESIGN.md` were updated to reflect the runtime/bootstrap split. No runtime code changes in this phase.
+- JSON file removal is not in this phase. The files stay in-tree as the canonical bootstrap snapshot.
+
 ### Phase 4 — result history on SQLite
 
 Coupon result history reads and writes now go through SQLite at runtime via `server/db-results.ts`. The JSON file is no longer the runtime source of truth.

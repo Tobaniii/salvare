@@ -20,7 +20,7 @@ GET /coupons?domain=example.com
 {
   "domain": "example.com",
   "candidateCodes": ["WELCOME10", "SAVE15"],
-  "source": "mock-profile",
+  "source": "mock-backend",
   "updatedAt": "2026-05-01T00:00:00.000Z"
 }
 ```
