@@ -27,6 +27,7 @@
 - Candidate codes come from the local backend at `localhost:4123` when running, or from a mock provider as a fallback.
 - The extension applies each code, waits for the checkout to update, compares totals against the baseline, and reapplies the winner.
 - After each tested code, the extension fires a best-effort `POST` to the backend's result history endpoint.
+- When the backend has prior result history for the store, it orders candidate codes by past performance so likely winners are tested first.
 
 ## 5. Limitations
 

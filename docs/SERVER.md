@@ -64,6 +64,8 @@ curl 'http://localhost:4123/coupons?domain=example.com'
 
 These match the candidate codes the v0.1.0 extension already tests via its mock provider. The seed lives in [`server/coupons.seed.json`](../server/coupons.seed.json); add or edit domains there without touching TypeScript. esbuild inlines the JSON during `npm run build:server`, so re-run that script (and restart the server) to pick up edits. The seed is duplicated from `extension/storeProfiles.ts` on purpose; a later milestone will collapse the two sources once the extension is wired to the backend.
 
+When local result history exists for the requested domain, the backend orders `candidateCodes` returned by `GET /coupons` by historical performance: codes with at least one successful test rank first (highest average `savingsCents`, with most recent success as a tiebreaker), then codes with no history in seed order, then failure-only codes. The response shape is unchanged; ranking only reorders existing seed/admin codes and never adds or removes them.
+
 ## Admin page
 
 A minimal local admin UI is served at:

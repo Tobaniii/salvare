@@ -40,7 +40,7 @@ Salvare is a React + TypeScript app and a companion Chrome extension that finds 
 
 A small prototype backend lives in `server/` and runs on `http://localhost:4123`. It is local-only — no hosted API, no scraping, no third-party calls.
 
-- Candidate-code provider: `couponProvider.ts` calls `GET /coupons?domain=…` first and falls back to mock/profile candidate codes when the backend is unreachable, slow, or returns an unexpected shape.
+- Candidate-code provider: `couponProvider.ts` calls `GET /coupons?domain=…` first and falls back to mock/profile candidate codes when the backend is unreachable, slow, or returns an unexpected shape. When local result history exists, the backend orders the returned codes by past performance — successful codes first, then no-history codes in seed order, then failure-only codes; ranking never adds or removes codes.
 - Admin page: open `http://localhost:4123/admin` to view, add, update, or delete seeded domains. Backed by `GET/POST/DELETE /admin/coupons`.
 - Result history: the extension fires a best-effort `POST /results` after each tested coupon. `GET /results?domain=…` returns the recorded outcomes.
 - Seed data is editable in [`server/coupons.seed.json`](server/coupons.seed.json); result history persists to [`server/coupon-results.json`](server/coupon-results.json).
