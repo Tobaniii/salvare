@@ -7,14 +7,15 @@ export interface CouponApiResponse {
   updatedAt: string;
 }
 
+import seedData from "./coupons.seed.json";
+
 // Seeded independently from the extension's storeProfiles.ts.
-// The duplication is intentional for v0.2.0 milestone 1: the extension is not
-// yet wired to this backend. A later milestone will collapse the two sources.
-export const SEED_DATA: Record<string, string[]> = {
-  localhost: ["SAVE10", "TAKE15", "FREESHIP"],
-  "salvare-test-store.myshopify.com": ["WELCOME10", "SAVE15", "FREESHIP"],
-  "salvare-woo-test.local": ["WELCOME10", "TAKE20", "FREESHIP"],
-};
+// The duplication is intentional for v0.2.0: the extension is not yet wired
+// to this backend. A later milestone will collapse the two sources.
+const SEED_DATA: Record<string, string[]> =
+  seedData && typeof seedData === "object"
+    ? (seedData as Record<string, string[]>)
+    : {};
 
 export function buildCouponResponse(
   domain: string,

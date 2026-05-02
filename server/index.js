@@ -1,12 +1,15 @@
 // server/index.ts
 import { createServer } from "node:http";
 
-// server/coupons.ts
-var SEED_DATA = {
+// server/coupons.seed.json
+var coupons_seed_default = {
   localhost: ["SAVE10", "TAKE15", "FREESHIP"],
   "salvare-test-store.myshopify.com": ["WELCOME10", "SAVE15", "FREESHIP"],
   "salvare-woo-test.local": ["WELCOME10", "TAKE20", "FREESHIP"]
 };
+
+// server/coupons.ts
+var SEED_DATA = coupons_seed_default && typeof coupons_seed_default === "object" ? coupons_seed_default : {};
 function buildCouponResponse(domain, now = () => /* @__PURE__ */ new Date()) {
   const codes = SEED_DATA[domain];
   if (codes && codes.length > 0) {

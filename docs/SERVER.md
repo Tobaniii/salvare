@@ -62,7 +62,7 @@ curl 'http://localhost:4123/coupons?domain=example.com'
 - `salvare-test-store.myshopify.com`
 - `salvare-woo-test.local`
 
-These match the candidate codes the v0.1.0 extension already tests via its mock provider. The seed currently lives in `server/coupons.ts` and is duplicated from `extension/storeProfiles.ts` on purpose; a later milestone will collapse the two sources once the extension is wired to the backend.
+These match the candidate codes the v0.1.0 extension already tests via its mock provider. The seed lives in [`server/coupons.seed.json`](../server/coupons.seed.json); add or edit domains there without touching TypeScript. esbuild inlines the JSON during `npm run build:server`, so re-run that script (and restart the server) to pick up edits. The seed is duplicated from `extension/storeProfiles.ts` on purpose; a later milestone will collapse the two sources once the extension is wired to the backend.
 
 ## Provider modes
 
