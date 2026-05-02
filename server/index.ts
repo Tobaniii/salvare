@@ -9,6 +9,12 @@ import {
   validateDomainParam,
 } from "./coupons";
 import { getAdminHtml } from "./admin";
+import {
+  appendResult,
+  getResultsForDomain,
+  loadResultsFromDisk,
+  validateResultBody,
+} from "./results";
 
 const DEFAULT_PORT = 4123;
 const port = Number(process.env.PORT ?? DEFAULT_PORT);
@@ -85,6 +91,54 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/results") {
+    let body: unknown;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { error: "invalid json" });
+      return;
+    }
+
+    const validation = validateResultBody(body);
+    if (!validation.ok) {
+      sendJson(res, 400, { error: validation.error });
+      return;
+    }
+
+    const stored = appendResult({
+      domain: validation.domain,
+      code: validation.code,
+      success: validation.success,
+      savingsCents: validation.savingsCents,
+      finalTotalCents: validation.finalTotalCents,
+    });
+    sendJson(res, 200, stored);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/results") {
+    const validation = validateDomainParam(url.searchParams.get("domain"));
+    if (!validation.ok) {
+      sendJson(res, 400, { error: validation.error });
+      return;
+    }
+
+    const records = getResultsForDomain(validation.domain).map((r) => ({
+      code: r.code,
+      success: r.success,
+      savingsCents: r.savingsCents,
+      finalTotalCents: r.finalTotalCents,
+      testedAt: r.testedAt,
+    }));
+
+    sendJson(res, 200, {
+      domain: validation.domain,
+      results: records,
+    });
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/admin/coupons") {
     let body: unknown;
     try {
@@ -109,6 +163,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
 }
 
 loadSeedFromDisk();
+loadResultsFromDisk();
 
 const server = createServer((req, res) => {
   handleRequest(req, res).catch((err) => {

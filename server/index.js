@@ -157,6 +157,89 @@ function getAdminHtml() {
   return cachedHtml;
 }
 
+// server/results.ts
+import { readFileSync as readFileSync3, renameSync as renameSync2, writeFileSync as writeFileSync2 } from "node:fs";
+import { dirname as dirname3, join as join3 } from "node:path";
+import { fileURLToPath as fileURLToPath3 } from "node:url";
+function validateResultBody(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { ok: false, error: "body must be an object" };
+  }
+  const b = body;
+  if (typeof b.domain !== "string" || b.domain.trim().length === 0) {
+    return { ok: false, error: "domain must be a non-empty string" };
+  }
+  if (typeof b.code !== "string" || b.code.trim().length === 0) {
+    return { ok: false, error: "code must be a non-empty string" };
+  }
+  if (typeof b.success !== "boolean") {
+    return { ok: false, error: "success must be a boolean" };
+  }
+  if (typeof b.savingsCents !== "number" || !Number.isInteger(b.savingsCents) || b.savingsCents < 0) {
+    return {
+      ok: false,
+      error: "savingsCents must be a non-negative integer"
+    };
+  }
+  if (typeof b.finalTotalCents !== "number" || !Number.isInteger(b.finalTotalCents) || b.finalTotalCents < 0) {
+    return {
+      ok: false,
+      error: "finalTotalCents must be a non-negative integer"
+    };
+  }
+  return {
+    ok: true,
+    domain: b.domain.trim(),
+    code: b.code.trim(),
+    success: b.success,
+    savingsCents: b.savingsCents,
+    finalTotalCents: b.finalTotalCents
+  };
+}
+var runtimeResults = [];
+var RESULTS_FILE_PATH = join3(
+  dirname3(fileURLToPath3(import.meta.url)),
+  "coupon-results.json"
+);
+function isValidResultRecord(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const r = value;
+  return typeof r.domain === "string" && typeof r.code === "string" && typeof r.success === "boolean" && typeof r.savingsCents === "number" && typeof r.finalTotalCents === "number" && typeof r.testedAt === "string";
+}
+function persistResultsToDisk() {
+  const tmpPath = `${RESULTS_FILE_PATH}.tmp`;
+  writeFileSync2(
+    tmpPath,
+    JSON.stringify({ results: runtimeResults }, null, 2) + "\n",
+    "utf8"
+  );
+  renameSync2(tmpPath, RESULTS_FILE_PATH);
+}
+var persistFn2 = persistResultsToDisk;
+function loadResultsFromDisk() {
+  try {
+    const raw = readFileSync3(RESULTS_FILE_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && Array.isArray(parsed.results) && parsed.results.every(isValidResultRecord)) {
+      runtimeResults = parsed.results;
+    }
+  } catch {
+  }
+}
+function appendResult(record, now = () => /* @__PURE__ */ new Date()) {
+  const stored = {
+    ...record,
+    testedAt: now().toISOString()
+  };
+  runtimeResults.push(stored);
+  persistFn2();
+  return stored;
+}
+function getResultsForDomain(domain) {
+  const trimmed = domain.trim();
+  return runtimeResults.filter((r) => r.domain === trimmed);
+}
+
 // server/index.ts
 var DEFAULT_PORT = 4123;
 var port = Number(process.env.PORT ?? DEFAULT_PORT);
@@ -224,6 +307,48 @@ async function handleRequest(req, res) {
     sendJson(res, 200, { deleted: true, domain: result.domain });
     return;
   }
+  if (req.method === "POST" && url.pathname === "/results") {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { error: "invalid json" });
+      return;
+    }
+    const validation = validateResultBody(body);
+    if (!validation.ok) {
+      sendJson(res, 400, { error: validation.error });
+      return;
+    }
+    const stored = appendResult({
+      domain: validation.domain,
+      code: validation.code,
+      success: validation.success,
+      savingsCents: validation.savingsCents,
+      finalTotalCents: validation.finalTotalCents
+    });
+    sendJson(res, 200, stored);
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/results") {
+    const validation = validateDomainParam(url.searchParams.get("domain"));
+    if (!validation.ok) {
+      sendJson(res, 400, { error: validation.error });
+      return;
+    }
+    const records = getResultsForDomain(validation.domain).map((r) => ({
+      code: r.code,
+      success: r.success,
+      savingsCents: r.savingsCents,
+      finalTotalCents: r.finalTotalCents,
+      testedAt: r.testedAt
+    }));
+    sendJson(res, 200, {
+      domain: validation.domain,
+      results: records
+    });
+    return;
+  }
   if (req.method === "POST" && url.pathname === "/admin/coupons") {
     let body;
     try {
@@ -244,6 +369,7 @@ async function handleRequest(req, res) {
   sendJson(res, 404, { error: "not found" });
 }
 loadSeedFromDisk();
+loadResultsFromDisk();
 var server = createServer((req, res) => {
   handleRequest(req, res).catch((err) => {
     console.error("Salvare server error:", err);

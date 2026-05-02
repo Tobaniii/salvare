@@ -135,6 +135,70 @@ curl -X DELETE 'http://localhost:4123/admin/coupons?domain=example.com'
 - Missing or empty `domain` query parameter → `400 { "error": "missing domain" }`.
 - Domain not in the seed map → `404 { "error": "domain not seeded", "domain": "..." }`.
 
+## Coupon result history
+
+Local-only endpoints for recording and reading coupon test outcomes. The extension is **not** wired to these yet; v0.4.0 milestone 1 only adds the backend surface.
+
+Result history persists to `server/coupon-results.json` (`{ "results": [...] }` envelope).
+
+### Record a result
+
+```bash
+curl -X POST http://localhost:4123/results \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "domain": "example.com",
+    "code": "WELCOME10",
+    "success": true,
+    "savingsCents": 1500,
+    "finalTotalCents": 8500
+  }'
+```
+
+Successful response (the stored record with a server-stamped `testedAt`):
+
+```json
+{
+  "domain": "example.com",
+  "code": "WELCOME10",
+  "success": true,
+  "savingsCents": 1500,
+  "finalTotalCents": 8500,
+  "testedAt": "2026-05-02T00:00:00.000Z"
+}
+```
+
+Validation rules:
+
+- `domain` and `code` must be non-empty strings.
+- `success` must be a boolean.
+- `savingsCents` and `finalTotalCents` must be non-negative integers.
+
+Invalid input → `400 { "error": "..." }`.
+
+### Read history for a domain
+
+```bash
+curl 'http://localhost:4123/results?domain=example.com'
+```
+
+```json
+{
+  "domain": "example.com",
+  "results": [
+    {
+      "code": "WELCOME10",
+      "success": true,
+      "savingsCents": 1500,
+      "finalTotalCents": 8500,
+      "testedAt": "2026-05-02T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+Missing or empty `domain` query parameter → `400 { "error": "missing domain" }`.
+
 ## Provider modes
 
 The extension's `couponProvider.ts` supports two explicit modes:

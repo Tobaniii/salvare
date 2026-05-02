@@ -1,0 +1,12 @@
+{
+  "results": [
+    {
+      "domain": "example.com",
+      "code": "WELCOME10",
+      "success": true,
+      "savingsCents": 1500,
+      "finalTotalCents": 8500,
+      "testedAt": "2026-05-02T02:22:22.951Z"
+    }
+  ]
+}
