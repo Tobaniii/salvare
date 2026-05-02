@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   buildCouponResponse,
+  deleteCoupons,
   getSeedData,
   resetSeedForTests,
   setPersistForTests,
   upsertCoupons,
   validateAdminBody,
+  validateDomainParam,
 } from "./coupons";
 import seedData from "./coupons.seed.json";
 
@@ -168,6 +170,46 @@ describe("admin pure logic", () => {
       ok: true,
       domain: "example.com",
       candidateCodes: ["A", "B"],
+    });
+  });
+});
+
+describe("admin delete", () => {
+  beforeEach(() => {
+    setPersistForTests(() => {});
+    resetSeedForTests();
+  });
+
+  it("deletes an existing domain", () => {
+    const result = deleteCoupons("localhost");
+    expect(result).toEqual({ deleted: true, domain: "localhost" });
+    expect(getSeedData().localhost).toBeUndefined();
+  });
+
+  it("returns deleted: false for a missing domain", () => {
+    const result = deleteCoupons("nonexistent.com");
+    expect(result).toEqual({ deleted: false, domain: "nonexistent.com" });
+    expect(getSeedData().localhost).toEqual(["SAVE10", "TAKE15", "FREESHIP"]);
+  });
+
+  it("trims whitespace before deleting", () => {
+    const result = deleteCoupons("  localhost  ");
+    expect(result).toEqual({ deleted: true, domain: "localhost" });
+    expect(getSeedData().localhost).toBeUndefined();
+  });
+
+  it("validateDomainParam rejects missing/empty values", () => {
+    expect(validateDomainParam(null)).toMatchObject({ ok: false });
+    expect(validateDomainParam(undefined)).toMatchObject({ ok: false });
+    expect(validateDomainParam("")).toMatchObject({ ok: false });
+    expect(validateDomainParam("   ")).toMatchObject({ ok: false });
+  });
+
+  it("validateDomainParam accepts and trims a valid domain", () => {
+    expect(validateDomainParam("x.com")).toEqual({ ok: true, domain: "x.com" });
+    expect(validateDomainParam("  example.com  ")).toEqual({
+      ok: true,
+      domain: "example.com",
     });
   });
 });

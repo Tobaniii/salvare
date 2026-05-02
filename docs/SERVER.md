@@ -119,6 +119,22 @@ The server trims whitespace and removes duplicate codes before saving. The chang
 
 Invalid input → `400 { "error": "..." }`. The endpoints have no auth and bind to localhost only; they are intended for local dev use.
 
+### Delete a domain
+
+```bash
+curl -X DELETE 'http://localhost:4123/admin/coupons?domain=example.com'
+```
+
+```json
+{
+  "deleted": true,
+  "domain": "example.com"
+}
+```
+
+- Missing or empty `domain` query parameter → `400 { "error": "missing domain" }`.
+- Domain not in the seed map → `404 { "error": "domain not seeded", "domain": "..." }`.
+
 ## Provider modes
 
 The extension's `couponProvider.ts` supports two explicit modes:

@@ -26,6 +26,11 @@ var coupons_seed_default = {
   "example-store.com": [
     "WELCOME10",
     "SAVE15"
+  ],
+  "refxem.com": [
+    "PRELUV10",
+    "NICHE",
+    "WELCOME15"
   ]
 };
 
@@ -113,6 +118,25 @@ function upsertCoupons(domain, codes) {
   persistFn();
   return { domain, candidateCodes: normalized };
 }
+function deleteCoupons(domain) {
+  const trimmed = domain.trim();
+  if (!(trimmed in runtimeSeed)) {
+    return { deleted: false, domain: trimmed };
+  }
+  delete runtimeSeed[trimmed];
+  persistFn();
+  return { deleted: true, domain: trimmed };
+}
+function validateDomainParam(raw) {
+  if (typeof raw !== "string") {
+    return { ok: false, error: "missing domain" };
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return { ok: false, error: "missing domain" };
+  }
+  return { ok: true, domain: trimmed };
+}
 
 // server/admin.ts
 import { readFileSync as readFileSync2 } from "node:fs";
@@ -181,6 +205,23 @@ async function handleRequest(req, res) {
       coupons: getSeedData(),
       updatedAt: (/* @__PURE__ */ new Date()).toISOString()
     });
+    return;
+  }
+  if (req.method === "DELETE" && url.pathname === "/admin/coupons") {
+    const validation = validateDomainParam(url.searchParams.get("domain"));
+    if (!validation.ok) {
+      sendJson(res, 400, { error: validation.error });
+      return;
+    }
+    const result = deleteCoupons(validation.domain);
+    if (!result.deleted) {
+      sendJson(res, 404, {
+        error: "domain not seeded",
+        domain: result.domain
+      });
+      return;
+    }
+    sendJson(res, 200, { deleted: true, domain: result.domain });
     return;
   }
   if (req.method === "POST" && url.pathname === "/admin/coupons") {

@@ -126,6 +126,35 @@ export function upsertCoupons(
   return { domain, candidateCodes: normalized };
 }
 
+export function deleteCoupons(
+  domain: string,
+): { deleted: boolean; domain: string } {
+  const trimmed = domain.trim();
+  if (!(trimmed in runtimeSeed)) {
+    return { deleted: false, domain: trimmed };
+  }
+  delete runtimeSeed[trimmed];
+  persistFn();
+  return { deleted: true, domain: trimmed };
+}
+
+export type DomainParamValidation =
+  | { ok: true; domain: string }
+  | { ok: false; error: string };
+
+export function validateDomainParam(
+  raw: string | null | undefined,
+): DomainParamValidation {
+  if (typeof raw !== "string") {
+    return { ok: false, error: "missing domain" };
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return { ok: false, error: "missing domain" };
+  }
+  return { ok: true, domain: trimmed };
+}
+
 export function setPersistForTests(fn: () => void): void {
   persistFn = fn;
 }

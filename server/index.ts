@@ -1,10 +1,12 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import {
   buildCouponResponse,
+  deleteCoupons,
   getSeedData,
   loadSeedFromDisk,
   upsertCoupons,
   validateAdminBody,
+  validateDomainParam,
 } from "./coupons";
 import { getAdminHtml } from "./admin";
 
@@ -62,6 +64,24 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       coupons: getSeedData(),
       updatedAt: new Date().toISOString(),
     });
+    return;
+  }
+
+  if (req.method === "DELETE" && url.pathname === "/admin/coupons") {
+    const validation = validateDomainParam(url.searchParams.get("domain"));
+    if (!validation.ok) {
+      sendJson(res, 400, { error: validation.error });
+      return;
+    }
+    const result = deleteCoupons(validation.domain);
+    if (!result.deleted) {
+      sendJson(res, 404, {
+        error: "domain not seeded",
+        domain: result.domain,
+      });
+      return;
+    }
+    sendJson(res, 200, { deleted: true, domain: result.domain });
     return;
   }
 
