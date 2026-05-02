@@ -64,6 +64,15 @@ curl 'http://localhost:4123/coupons?domain=example.com'
 
 These match the candidate codes the v0.1.0 extension already tests via its mock provider. The seed currently lives in `server/coupons.ts` and is duplicated from `extension/storeProfiles.ts` on purpose; a later milestone will collapse the two sources once the extension is wired to the backend.
 
+## Provider modes
+
+The extension's `couponProvider.ts` supports two explicit modes:
+
+- `mock` — skips the local backend entirely and returns mock/profile candidate codes. Use this when you want to avoid the local-network permission prompt or when running offline.
+- `backend-with-fallback` — tries `http://localhost:4123/coupons` first and falls back to mock candidate codes when the backend is unreachable, slow, or returns an unexpected shape.
+
+The current default is `backend-with-fallback`. Switching to `mock` skips the localhost call and avoids the Chrome permission prompt described below.
+
 ## Chrome permission prompt
 
 When the content script first contacts `http://localhost:4123` from a checkout page, Chrome may show a permission prompt because the page is reaching out to a local service.

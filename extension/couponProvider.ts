@@ -1,5 +1,9 @@
 import { getStoreProfileForDomain } from "./storeProfiles";
 
+export type CouponProviderMode = "mock" | "backend-with-fallback";
+
+const COUPON_PROVIDER_MODE: CouponProviderMode = "backend-with-fallback";
+
 const BACKEND_URL = "http://localhost:4123/coupons";
 const BACKEND_TIMEOUT_MS = 750;
 
@@ -55,10 +59,20 @@ function getMockCandidateCodes(domain: string): string[] {
   return profile?.candidateCodes ?? [];
 }
 
-export async function fetchCandidateCodes(domain: string): Promise<string[]> {
+export async function fetchCandidateCodesWithMode(
+  domain: string,
+  mode: CouponProviderMode,
+): Promise<string[]> {
+  if (mode === "mock") {
+    return getMockCandidateCodes(domain);
+  }
   const fromBackend = await fetchFromBackend(domain);
   if (fromBackend !== null) return fromBackend;
   return getMockCandidateCodes(domain);
+}
+
+export async function fetchCandidateCodes(domain: string): Promise<string[]> {
+  return fetchCandidateCodesWithMode(domain, COUPON_PROVIDER_MODE);
 }
 
 export interface CandidateCodeResult {

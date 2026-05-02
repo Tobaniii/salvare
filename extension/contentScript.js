@@ -35,6 +35,7 @@
   }
 
   // extension/couponProvider.ts
+  var COUPON_PROVIDER_MODE = "backend-with-fallback";
   var BACKEND_URL = "http://localhost:4123/coupons";
   var BACKEND_TIMEOUT_MS = 750;
   function isValidBackendResponse(body) {
@@ -76,10 +77,16 @@
     const profile = getStoreProfileForDomain(domain);
     return profile?.candidateCodes ?? [];
   }
-  async function fetchCandidateCodes(domain) {
+  async function fetchCandidateCodesWithMode(domain, mode) {
+    if (mode === "mock") {
+      return getMockCandidateCodes(domain);
+    }
     const fromBackend = await fetchFromBackend(domain);
     if (fromBackend !== null) return fromBackend;
     return getMockCandidateCodes(domain);
+  }
+  async function fetchCandidateCodes(domain) {
+    return fetchCandidateCodesWithMode(domain, COUPON_PROVIDER_MODE);
   }
 
   // extension/moneyParsing.ts

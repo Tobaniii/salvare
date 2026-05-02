@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   fetchCandidateCodeResult,
   fetchCandidateCodes,
+  fetchCandidateCodesWithMode,
 } from "./couponProvider";
 
 beforeEach(() => {
@@ -152,5 +153,38 @@ describe("fetchCandidateCodes — backend integration", () => {
       "TAKE15",
       "FREESHIP",
     ]);
+  });
+});
+
+describe("fetchCandidateCodesWithMode — mock mode", () => {
+  it("returns mock codes for a supported domain without calling fetch", async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            domain: "localhost",
+            candidateCodes: ["BACKEND_ONLY"],
+            source: "mock-backend",
+            updatedAt: "2026-05-02T00:00:00.000Z",
+          }),
+      } as unknown as Response),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchCandidateCodesWithMode("localhost", "mock"),
+    ).resolves.toEqual(["SAVE10", "TAKE15", "FREESHIP"]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("returns [] for an unsupported domain without calling fetch", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchCandidateCodesWithMode("example.com", "mock"),
+    ).resolves.toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
