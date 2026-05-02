@@ -1,5 +1,12 @@
-import { describe, it, expect } from "vitest";
-import { buildCouponResponse } from "./coupons";
+import { describe, it, expect, beforeEach } from "vitest";
+import {
+  buildCouponResponse,
+  getSeedData,
+  resetSeedForTests,
+  setPersistForTests,
+  upsertCoupons,
+  validateAdminBody,
+} from "./coupons";
 import seedData from "./coupons.seed.json";
 
 describe("buildCouponResponse", () => {
@@ -72,5 +79,95 @@ describe("coupons.seed.json validation", () => {
         expect((code as string).length).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+describe("admin pure logic", () => {
+  beforeEach(() => {
+    setPersistForTests(() => {});
+    resetSeedForTests();
+  });
+
+  it("getSeedData returns the bundled seed map", () => {
+    const seed = getSeedData();
+    expect(seed.localhost).toEqual(["SAVE10", "TAKE15", "FREESHIP"]);
+    expect(seed["salvare-test-store.myshopify.com"]).toEqual([
+      "WELCOME10",
+      "SAVE15",
+      "FREESHIP",
+    ]);
+    expect(seed["salvare-woo-test.local"]).toEqual([
+      "WELCOME10",
+      "TAKE20",
+      "FREESHIP",
+    ]);
+  });
+
+  it("upsertCoupons adds a new domain", () => {
+    const result = upsertCoupons("example.com", ["NEW10"]);
+    expect(result).toEqual({
+      domain: "example.com",
+      candidateCodes: ["NEW10"],
+    });
+    expect(getSeedData()["example.com"]).toEqual(["NEW10"]);
+  });
+
+  it("upsertCoupons updates an existing domain", () => {
+    const result = upsertCoupons("localhost", ["NEW_CODE"]);
+    expect(result.candidateCodes).toEqual(["NEW_CODE"]);
+    expect(getSeedData().localhost).toEqual(["NEW_CODE"]);
+  });
+
+  it("upsertCoupons trims and dedupes codes", () => {
+    const result = upsertCoupons("dedupe.example.com", [
+      " A ",
+      "A",
+      "B",
+      "B",
+      " C",
+    ]);
+    expect(result.candidateCodes).toEqual(["A", "B", "C"]);
+  });
+
+  it("validateAdminBody rejects non-object bodies", () => {
+    expect(validateAdminBody(null)).toMatchObject({ ok: false });
+    expect(validateAdminBody("not an object")).toMatchObject({ ok: false });
+    expect(validateAdminBody([])).toMatchObject({ ok: false });
+  });
+
+  it("validateAdminBody rejects invalid domain", () => {
+    expect(
+      validateAdminBody({ domain: "", candidateCodes: ["A"] }),
+    ).toMatchObject({ ok: false });
+    expect(
+      validateAdminBody({ domain: "   ", candidateCodes: ["A"] }),
+    ).toMatchObject({ ok: false });
+    expect(
+      validateAdminBody({ domain: 42, candidateCodes: ["A"] }),
+    ).toMatchObject({ ok: false });
+  });
+
+  it("validateAdminBody rejects invalid candidateCodes", () => {
+    expect(
+      validateAdminBody({ domain: "x.com", candidateCodes: "A" }),
+    ).toMatchObject({ ok: false });
+    expect(
+      validateAdminBody({ domain: "x.com", candidateCodes: [""] }),
+    ).toMatchObject({ ok: false });
+    expect(
+      validateAdminBody({ domain: "x.com", candidateCodes: [42] }),
+    ).toMatchObject({ ok: false });
+  });
+
+  it("validateAdminBody accepts a valid body", () => {
+    const result = validateAdminBody({
+      domain: " example.com ",
+      candidateCodes: ["A", "B"],
+    });
+    expect(result).toEqual({
+      ok: true,
+      domain: "example.com",
+      candidateCodes: ["A", "B"],
+    });
   });
 });

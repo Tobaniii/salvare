@@ -1,5 +1,21 @@
 {
-  "localhost": ["SAVE10", "TAKE15", "FREESHIP"],
-  "salvare-test-store.myshopify.com": ["WELCOME10", "SAVE15", "FREESHIP"],
-  "salvare-woo-test.local": ["WELCOME10", "TAKE20", "FREESHIP"]
+  "localhost": [
+    "SAVE10",
+    "TAKE15",
+    "FREESHIP"
+  ],
+  "salvare-test-store.myshopify.com": [
+    "WELCOME10",
+    "SAVE15",
+    "FREESHIP"
+  ],
+  "salvare-woo-test.local": [
+    "WELCOME10",
+    "TAKE20",
+    "FREESHIP"
+  ],
+  "example-store.com": [
+    "WELCOME10",
+    "SAVE15"
+  ]
 }

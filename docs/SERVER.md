@@ -64,6 +64,49 @@ curl 'http://localhost:4123/coupons?domain=example.com'
 
 These match the candidate codes the v0.1.0 extension already tests via its mock provider. The seed lives in [`server/coupons.seed.json`](../server/coupons.seed.json); add or edit domains there without touching TypeScript. esbuild inlines the JSON during `npm run build:server`, so re-run that script (and restart the server) to pick up edits. The seed is duplicated from `extension/storeProfiles.ts` on purpose; a later milestone will collapse the two sources once the extension is wired to the backend.
 
+## Admin endpoints
+
+Local-only endpoints for inspecting and updating the seeded coupon map at runtime. Useful in dev so you don't have to edit `server/coupons.seed.json` and rebuild the bundle to test new domains.
+
+### List all seeded coupons
+
+```bash
+curl http://localhost:4123/admin/coupons
+```
+
+```json
+{
+  "coupons": {
+    "localhost": ["SAVE10", "TAKE15", "FREESHIP"],
+    "salvare-test-store.myshopify.com": ["WELCOME10", "SAVE15", "FREESHIP"],
+    "salvare-woo-test.local": ["WELCOME10", "TAKE20", "FREESHIP"]
+  },
+  "updatedAt": "2026-05-02T00:00:00.000Z"
+}
+```
+
+### Add or update a domain
+
+```bash
+curl -X POST http://localhost:4123/admin/coupons \
+  -H 'Content-Type: application/json' \
+  -d '{"domain":"example.com","candidateCodes":["WELCOME10","SAVE15"]}'
+```
+
+```json
+{
+  "domain": "example.com",
+  "candidateCodes": ["WELCOME10", "SAVE15"]
+}
+```
+
+The server trims whitespace and removes duplicate codes before saving. The change is written back to `server/coupons.seed.json` (atomic temp + rename) so it survives restarts. Validation rules:
+
+- `domain` must be a non-empty string.
+- `candidateCodes` must be an array of non-empty strings.
+
+Invalid input → `400 { "error": "..." }`. The endpoints have no auth and bind to localhost only; they are intended for local dev use.
+
 ## Provider modes
 
 The extension's `couponProvider.ts` supports two explicit modes:
