@@ -48,6 +48,39 @@ A small prototype backend lives in `server/` and runs on `http://localhost:4123`
 
 See [`docs/SERVER.md`](docs/SERVER.md), [`docs/SEED_DATA.md`](docs/SEED_DATA.md), and [`docs/API_DESIGN.md`](docs/API_DESIGN.md) for details.
 
+## Architecture
+
+### Components
+
+- React demo app — local checkout for showcasing the engine ([src/App.tsx](src/App.tsx), [src/engine/couponEngine.ts](src/engine/couponEngine.ts)).
+- Chrome extension popup — readiness check and Find Best Coupon button ([extension/popup.ts](extension/popup.ts), [extension/popup.html](extension/popup.html)).
+- Content script — runs on checkouts, finds inputs, applies and verifies codes ([extension/contentScript.ts](extension/contentScript.ts)).
+- Store profiles — per-domain selectors and behavior ([extension/storeProfiles.ts](extension/storeProfiles.ts)).
+- Coupon provider — backend-with-fallback or mock seam ([extension/couponProvider.ts](extension/couponProvider.ts)).
+- Result reporter — best-effort fire-and-forget POST ([extension/resultReporter.ts](extension/resultReporter.ts)).
+- Local backend server — `GET/POST/DELETE` for coupons and results ([server/index.ts](server/index.ts)).
+- Admin page — local UI for managing seeded coupon codes ([server/admin.html](server/admin.html)).
+- Seed data — editable JSON of candidate codes per domain ([server/coupons.seed.json](server/coupons.seed.json)).
+- Result history — local JSON of tested coupon outcomes ([server/coupon-results.json](server/coupon-results.json)).
+- Ranking helper — orders candidate codes by past performance ([server/ranking.ts](server/ranking.ts)).
+
+### How a coupon test runs
+
+1. The user clicks **Find Best Coupon** in the popup.
+2. The popup sends a message to the content script on the active tab.
+3. The content script resolves a store profile by hostname and asks the coupon provider for candidate codes.
+4. The coupon provider calls the local backend first and falls back to mock/profile codes when the backend is unreachable, slow, or returns an unexpected shape.
+5. The backend returns seed/admin candidate codes, ordered by local result history when available.
+6. The content script applies each code on checkout, compares totals against the baseline, and reapplies the winner.
+7. After each tested code, the extension fires a best-effort `POST` to the backend's result history.
+8. Future runs use that history to re-rank candidate codes for the same domain.
+
+### Boundaries
+
+- The backend is local development only; there is no hosted API.
+- No scraping or external coupon discovery is implemented.
+- The extension verifies every code directly on checkout — candidates are tested, not trusted.
+
 ## Run the React app
 
 ```bash
