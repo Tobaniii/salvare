@@ -89,6 +89,32 @@
     return fetchCandidateCodesWithMode(domain, COUPON_PROVIDER_MODE);
   }
 
+  // extension/resultReporter.ts
+  var RESULTS_URL = "http://localhost:4123/results";
+  var TIMEOUT_MS = 750;
+  async function reportCouponResult(result) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    console.log("Salvare reporting coupon result", result);
+    try {
+      const response = await fetch(RESULTS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(result),
+        signal: controller.signal
+      });
+      if (response.ok) {
+        console.log("Salvare reported coupon result");
+      } else {
+        console.log("Salvare result reporting failed", response.status);
+      }
+    } catch (err) {
+      console.log("Salvare result reporting failed", err);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   // extension/moneyParsing.ts
   var MONEY_REGEX = /(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+\.\d{2}|\d+)/g;
   function parseMoneyToCents(value) {
@@ -660,6 +686,21 @@
         totalCents,
         improved,
         discountResult
+      });
+      const reportSavings = improved && totalCents !== null ? baselineTotalCents - totalCents : 0;
+      const reportFinalTotal = improved && totalCents !== null ? totalCents : baselineTotalCents;
+      console.log("Salvare queueing coupon result report", {
+        code,
+        success: improved,
+        savingsCents: reportSavings,
+        finalTotalCents: reportFinalTotal
+      });
+      void reportCouponResult({
+        domain: window.location.hostname,
+        code,
+        success: improved,
+        savingsCents: reportSavings,
+        finalTotalCents: reportFinalTotal
       });
       if (improved && totalCents !== null) {
         results.push({ code, totalCents });

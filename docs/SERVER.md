@@ -199,6 +199,19 @@ curl 'http://localhost:4123/results?domain=example.com'
 
 Missing or empty `domain` query parameter → `400 { "error": "missing domain" }`.
 
+## CORS for local development
+
+The server allows result-reporting POSTs (and other API calls) from a small allowlist of local development origins. When the request `Origin` header matches the allowlist, the server echoes it back in `Access-Control-Allow-Origin` and includes the methods and headers needed for the extension's `fetch` calls.
+
+Allowed origins:
+
+- `http://localhost`
+- `http://localhost:5173`
+- `http://salvare-woo-test.local`
+- `https://salvare-test-store.myshopify.com`
+
+`OPTIONS` preflight requests respond `204` with the same headers when the origin is allowed, and `204` without CORS headers (browser blocks the follow-up) for unknown origins. Other allowlist entries can be added in `server/cors.ts`.
+
 ## Provider modes
 
 The extension's `couponProvider.ts` supports two explicit modes:

@@ -3,6 +3,7 @@ import {
   type StoreProfile,
 } from "./storeProfiles";
 import { fetchCandidateCodes } from "./couponProvider";
+import { reportCouponResult } from "./resultReporter";
 import { extractMoneyText, parseMoneyToCents } from "./moneyParsing";
 type SalvareCheckoutScan = {
   domain: string;
@@ -825,6 +826,25 @@ async function findBestWorkingCoupon(
       totalCents,
       improved,
       discountResult,
+    });
+
+    const reportSavings =
+      improved && totalCents !== null ? baselineTotalCents - totalCents : 0;
+    const reportFinalTotal =
+      improved && totalCents !== null ? totalCents : baselineTotalCents;
+    // TODO: temporary debug log — remove after WooCommerce reporting is verified
+    console.log("Salvare queueing coupon result report", {
+      code,
+      success: improved,
+      savingsCents: reportSavings,
+      finalTotalCents: reportFinalTotal,
+    });
+    void reportCouponResult({
+      domain: window.location.hostname,
+      code,
+      success: improved,
+      savingsCents: reportSavings,
+      finalTotalCents: reportFinalTotal,
     });
 
     if (improved && totalCents !== null) {

@@ -7,6 +7,38 @@
       "savingsCents": 1500,
       "finalTotalCents": 8500,
       "testedAt": "2026-05-02T02:22:22.951Z"
+    },
+    {
+      "domain": "salvare-woo-test.local",
+      "code": "MANUALTEST",
+      "success": true,
+      "savingsCents": 100,
+      "finalTotalCents": 1000,
+      "testedAt": "2026-05-02T02:44:11.907Z"
+    },
+    {
+      "domain": "salvare-woo-test.local",
+      "code": "WELCOME10",
+      "success": true,
+      "savingsCents": 1750,
+      "finalTotalCents": 15750,
+      "testedAt": "2026-05-02T03:48:45.320Z"
+    },
+    {
+      "domain": "salvare-woo-test.local",
+      "code": "TAKE20",
+      "success": true,
+      "savingsCents": 2000,
+      "finalTotalCents": 15500,
+      "testedAt": "2026-05-02T03:48:57.867Z"
+    },
+    {
+      "domain": "salvare-woo-test.local",
+      "code": "FREESHIP",
+      "success": false,
+      "savingsCents": 0,
+      "finalTotalCents": 17500,
+      "testedAt": "2026-05-02T03:49:14.132Z"
     }
   ]
 }

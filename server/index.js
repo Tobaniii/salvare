@@ -240,6 +240,22 @@ function getResultsForDomain(domain) {
   return runtimeResults.filter((r) => r.domain === trimmed);
 }
 
+// server/cors.ts
+var ALLOWED_ORIGINS = /* @__PURE__ */ new Set([
+  "http://localhost",
+  "http://localhost:5173",
+  "http://salvare-woo-test.local",
+  "https://salvare-test-store.myshopify.com"
+]);
+function buildCorsHeaders(origin) {
+  if (!origin || !ALLOWED_ORIGINS.has(origin)) return null;
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type"
+  };
+}
+
 // server/index.ts
 var DEFAULT_PORT = 4123;
 var port = Number(process.env.PORT ?? DEFAULT_PORT);
@@ -258,6 +274,17 @@ async function readJsonBody(req) {
   return JSON.parse(text);
 }
 async function handleRequest(req, res) {
+  const corsHeaders = buildCorsHeaders(req.headers.origin);
+  if (corsHeaders) {
+    for (const [key, value] of Object.entries(corsHeaders)) {
+      res.setHeader(key, value);
+    }
+  }
+  if (req.method === "OPTIONS") {
+    res.statusCode = 204;
+    res.end();
+    return;
+  }
   if (!req.url || !req.method) {
     sendJson(res, 400, { error: "bad request" });
     return;
