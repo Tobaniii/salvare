@@ -18,23 +18,15 @@ export async function reportCouponResult(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-  // TODO: temporary debug logs — remove after WooCommerce reporting is verified
-  console.log("Salvare reporting coupon result", result);
-
   try {
-    const response = await fetch(RESULTS_URL, {
+    await fetch(RESULTS_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(result),
       signal: controller.signal,
     });
-    if (response.ok) {
-      console.log("Salvare reported coupon result");
-    } else {
-      console.log("Salvare result reporting failed", response.status);
-    }
-  } catch (err) {
-    console.log("Salvare result reporting failed", err);
+  } catch {
+    // best-effort: swallow all errors
   } finally {
     clearTimeout(timeout);
   }

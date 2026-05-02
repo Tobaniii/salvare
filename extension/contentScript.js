@@ -95,21 +95,14 @@
   async function reportCouponResult(result) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    console.log("Salvare reporting coupon result", result);
     try {
-      const response = await fetch(RESULTS_URL, {
+      await fetch(RESULTS_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(result),
         signal: controller.signal
       });
-      if (response.ok) {
-        console.log("Salvare reported coupon result");
-      } else {
-        console.log("Salvare result reporting failed", response.status);
-      }
-    } catch (err) {
-      console.log("Salvare result reporting failed", err);
+    } catch {
     } finally {
       clearTimeout(timeout);
     }
@@ -689,12 +682,6 @@
       });
       const reportSavings = improved && totalCents !== null ? baselineTotalCents - totalCents : 0;
       const reportFinalTotal = improved && totalCents !== null ? totalCents : baselineTotalCents;
-      console.log("Salvare queueing coupon result report", {
-        code,
-        success: improved,
-        savingsCents: reportSavings,
-        finalTotalCents: reportFinalTotal
-      });
       void reportCouponResult({
         domain: window.location.hostname,
         code,

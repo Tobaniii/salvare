@@ -832,13 +832,6 @@ async function findBestWorkingCoupon(
       improved && totalCents !== null ? baselineTotalCents - totalCents : 0;
     const reportFinalTotal =
       improved && totalCents !== null ? totalCents : baselineTotalCents;
-    // TODO: temporary debug log — remove after WooCommerce reporting is verified
-    console.log("Salvare queueing coupon result report", {
-      code,
-      success: improved,
-      savingsCents: reportSavings,
-      finalTotalCents: reportFinalTotal,
-    });
     void reportCouponResult({
       domain: window.location.hostname,
       code,
