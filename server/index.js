@@ -1,5 +1,9 @@
 // server/index.ts
-import { createServer } from "node:http";
+import {
+  createServer
+} from "node:http";
+import { realpathSync } from "node:fs";
+import { fileURLToPath as fileURLToPath4 } from "node:url";
 
 // server/coupons.ts
 function buildCouponResponse(domain, candidateCodes, now = () => /* @__PURE__ */ new Date()) {
@@ -268,14 +272,14 @@ var SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_coupon_results_tested_at
     ON coupon_results(tested_at);
 `;
-function initSchema(db2) {
-  db2.exec(SCHEMA_SQL);
+function initSchema(db) {
+  db.exec(SCHEMA_SQL);
 }
 function openDatabase(path) {
-  const db2 = new Database(path);
-  db2.pragma("foreign_keys = ON");
-  initSchema(db2);
-  return db2;
+  const db = new Database(path);
+  db.pragma("foreign_keys = ON");
+  initSchema(db);
+  return db;
 }
 function defaultDatabasePath() {
   return join2(dirname2(fileURLToPath2(import.meta.url)), "salvare.db");
@@ -288,17 +292,17 @@ import { fileURLToPath as fileURLToPath3 } from "node:url";
 var SERVER_DIR = dirname3(fileURLToPath3(import.meta.url));
 var SEED_PATH = join3(SERVER_DIR, "coupons.seed.json");
 var RESULTS_PATH = join3(SERVER_DIR, "coupon-results.json");
-function importSeed(db2, seed, now = (/* @__PURE__ */ new Date()).toISOString()) {
-  const storeInsert = db2.prepare(
+function importSeed(db, seed, now = (/* @__PURE__ */ new Date()).toISOString()) {
+  const storeInsert = db.prepare(
     `INSERT OR IGNORE INTO stores (domain, created_at, updated_at) VALUES (?, ?, ?)`
   );
-  const storeLookup = db2.prepare(`SELECT id FROM stores WHERE domain = ?`);
-  const codeInsert = db2.prepare(
+  const storeLookup = db.prepare(`SELECT id FROM stores WHERE domain = ?`);
+  const codeInsert = db.prepare(
     `INSERT OR IGNORE INTO coupon_codes (store_id, code, created_at, updated_at) VALUES (?, ?, ?, ?)`
   );
   let storesImported = 0;
   let codesImported = 0;
-  const txn = db2.transaction((data) => {
+  const txn = db.transaction((data) => {
     for (const [domain, codeList] of Object.entries(data)) {
       const storeResult = storeInsert.run(domain, now, now);
       if (storeResult.changes > 0) storesImported++;
@@ -341,9 +345,9 @@ function readResultsFromDisk() {
 function nowIso() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
-function getCandidateCodesForDomain(db2, domain) {
+function getCandidateCodesForDomain(db, domain) {
   const trimmed = domain.trim();
-  const rows = db2.prepare(
+  const rows = db.prepare(
     `SELECT c.code AS code
          FROM coupon_codes c
          JOIN stores s ON s.id = c.store_id
@@ -352,8 +356,8 @@ function getCandidateCodesForDomain(db2, domain) {
   ).all(trimmed);
   return rows.map((r) => r.code);
 }
-function getAllSeedData(db2) {
-  const rows = db2.prepare(
+function getAllSeedData(db) {
+  const rows = db.prepare(
     `SELECT s.domain AS domain, c.code AS code
          FROM stores s
          LEFT JOIN coupon_codes c ON c.store_id = s.id
@@ -366,26 +370,26 @@ function getAllSeedData(db2) {
   }
   return result;
 }
-function upsertCouponCodes(db2, domain, codes) {
+function upsertCouponCodes(db, domain, codes) {
   const trimmedDomain = domain.trim();
   const normalizedCodes = [...new Set(codes.map((c) => c.trim()))];
   const now = nowIso();
-  const upsertStore = db2.prepare(
+  const upsertStore = db.prepare(
     `INSERT INTO stores (domain, created_at, updated_at)
        VALUES (?, ?, ?)
        ON CONFLICT(domain) DO UPDATE SET updated_at = excluded.updated_at`
   );
-  const lookupStore = db2.prepare(
+  const lookupStore = db.prepare(
     `SELECT id FROM stores WHERE domain = ?`
   );
-  const deleteCodes = db2.prepare(
+  const deleteCodes = db.prepare(
     `DELETE FROM coupon_codes WHERE store_id = ?`
   );
-  const insertCode = db2.prepare(
+  const insertCode = db.prepare(
     `INSERT INTO coupon_codes (store_id, code, created_at, updated_at)
        VALUES (?, ?, ?, ?)`
   );
-  const txn = db2.transaction(() => {
+  const txn = db.transaction(() => {
     upsertStore.run(trimmedDomain, now, now);
     const storeRow = lookupStore.get(trimmedDomain);
     if (!storeRow) {
@@ -399,18 +403,18 @@ function upsertCouponCodes(db2, domain, codes) {
   txn();
   return { domain: trimmedDomain, candidateCodes: normalizedCodes };
 }
-function deleteCouponDomain(db2, domain) {
+function deleteCouponDomain(db, domain) {
   const trimmed = domain.trim();
-  const result = db2.prepare(`DELETE FROM stores WHERE domain = ?`).run(trimmed);
+  const result = db.prepare(`DELETE FROM stores WHERE domain = ?`).run(trimmed);
   return { deleted: result.changes > 0, domain: trimmed };
 }
-function bootstrapIfEmpty(db2, seedOverride) {
-  const count = db2.prepare(`SELECT COUNT(*) AS c FROM stores`).get().c;
+function bootstrapIfEmpty(db, seedOverride) {
+  const count = db.prepare(`SELECT COUNT(*) AS c FROM stores`).get().c;
   if (count > 0) {
     return { bootstrapped: false, storesImported: 0, codesImported: 0 };
   }
   const seed = seedOverride ?? readSeedFromDisk();
-  const stats = importSeed(db2, seed);
+  const stats = importSeed(db, seed);
   return {
     bootstrapped: true,
     storesImported: stats.storesImported,
@@ -432,20 +436,20 @@ function rowToRecord(row) {
     testedAt: row.tested_at
   };
 }
-function appendResultRecord(db2, record, now = () => /* @__PURE__ */ new Date()) {
+function appendResultRecord(db, record, now = () => /* @__PURE__ */ new Date()) {
   const testedAt = now().toISOString();
-  const upsertStore = db2.prepare(
+  const upsertStore = db.prepare(
     `INSERT INTO stores (domain, created_at, updated_at)
        VALUES (?, ?, ?)
        ON CONFLICT(domain) DO UPDATE SET updated_at = excluded.updated_at`
   );
-  const lookupStore = db2.prepare(`SELECT id FROM stores WHERE domain = ?`);
-  const insertResult = db2.prepare(
+  const lookupStore = db.prepare(`SELECT id FROM stores WHERE domain = ?`);
+  const insertResult = db.prepare(
     `INSERT INTO coupon_results
        (store_id, code, success, savings_cents, final_total_cents, tested_at)
      VALUES (?, ?, ?, ?, ?, ?)`
   );
-  const txn = db2.transaction(() => {
+  const txn = db.transaction(() => {
     upsertStore.run(record.domain, testedAt, testedAt);
     const storeRow = lookupStore.get(record.domain);
     if (!storeRow) {
@@ -463,9 +467,9 @@ function appendResultRecord(db2, record, now = () => /* @__PURE__ */ new Date())
   txn();
   return { ...record, testedAt };
 }
-function getResultsForDomain(db2, domain) {
+function getResultsForDomain(db, domain) {
   const trimmed = domain.trim();
-  const rows = db2.prepare(
+  const rows = db.prepare(
     `SELECT s.domain AS domain,
               r.code AS code,
               r.success AS success,
@@ -479,16 +483,16 @@ function getResultsForDomain(db2, domain) {
   ).all(trimmed);
   return rows.map(rowToRecord);
 }
-function deleteResultsForDomain(db2, domain) {
+function deleteResultsForDomain(db, domain) {
   const trimmed = domain.trim();
-  const result = db2.prepare(
+  const result = db.prepare(
     `DELETE FROM coupon_results
         WHERE store_id IN (SELECT id FROM stores WHERE domain = ?)`
   ).run(trimmed);
   return { domain: trimmed, deletedCount: result.changes };
 }
-function bootstrapResultsIfEmpty(db2, envelopeOverride) {
-  const count = db2.prepare(`SELECT COUNT(*) AS c FROM coupon_results`).get().c;
+function bootstrapResultsIfEmpty(db, envelopeOverride) {
+  const count = db.prepare(`SELECT COUNT(*) AS c FROM coupon_results`).get().c;
   if (count > 0) {
     return { bootstrapped: false, resultsImported: 0 };
   }
@@ -498,18 +502,18 @@ function bootstrapResultsIfEmpty(db2, envelopeOverride) {
     return { bootstrapped: false, resultsImported: 0 };
   }
   const now = nowIso2();
-  const upsertStore = db2.prepare(
+  const upsertStore = db.prepare(
     `INSERT OR IGNORE INTO stores (domain, created_at, updated_at)
        VALUES (?, ?, ?)`
   );
-  const lookupStore = db2.prepare(`SELECT id FROM stores WHERE domain = ?`);
-  const insertResult = db2.prepare(
+  const lookupStore = db.prepare(`SELECT id FROM stores WHERE domain = ?`);
+  const insertResult = db.prepare(
     `INSERT INTO coupon_results
        (store_id, code, success, savings_cents, final_total_cents, tested_at)
      VALUES (?, ?, ?, ?, ?, ?)`
   );
   let resultsImported = 0;
-  const txn = db2.transaction(() => {
+  const txn = db.transaction(() => {
     for (const r of records) {
       upsertStore.run(r.domain, now, now);
       const storeRow = lookupStore.get(r.domain);
@@ -529,22 +533,31 @@ function bootstrapResultsIfEmpty(db2, envelopeOverride) {
   return { bootstrapped: true, resultsImported };
 }
 
+// server/auth.ts
+import { timingSafeEqual } from "node:crypto";
+function readAdminTokenFromEnv(env = process.env) {
+  const raw = env.SALVARE_ADMIN_TOKEN;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+function constantTimeEquals(a, b) {
+  const aBuf = Buffer.from(a, "utf8");
+  const bBuf = Buffer.from(b, "utf8");
+  if (aBuf.length !== bBuf.length) return false;
+  return timingSafeEqual(aBuf, bBuf);
+}
+function isAuthorized(headers, configuredToken) {
+  if (configuredToken === null) return true;
+  const header = headers.authorization;
+  if (typeof header !== "string") return false;
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  if (!match) return false;
+  return constantTimeEquals(match[1].trim(), configuredToken);
+}
+
 // server/index.ts
 var DEFAULT_PORT = 4123;
-var port = Number(process.env.PORT ?? DEFAULT_PORT);
-var db = openDatabase(defaultDatabasePath());
-var bootstrapStats = bootstrapIfEmpty(db);
-if (bootstrapStats.bootstrapped) {
-  console.log(
-    `Salvare bootstrap on startup: imported ${bootstrapStats.storesImported} store(s) and ${bootstrapStats.codesImported} code(s) from coupons.seed.json`
-  );
-}
-var resultsBootstrapStats = bootstrapResultsIfEmpty(db);
-if (resultsBootstrapStats.bootstrapped) {
-  console.log(
-    `Salvare bootstrap on startup: imported ${resultsBootstrapStats.resultsImported} result record(s) from coupon-results.json`
-  );
-}
 function sendJson(res, status, body) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json");
@@ -559,170 +572,226 @@ async function readJsonBody(req) {
   if (!text) return {};
   return JSON.parse(text);
 }
-async function handleRequest(req, res) {
-  const corsHeaders = buildCorsHeaders(req.headers.origin);
-  if (corsHeaders) {
-    for (const [key, value] of Object.entries(corsHeaders)) {
-      res.setHeader(key, value);
+function createSalvareServer(options) {
+  const { db, adminToken } = options;
+  function requireAuth(req, res) {
+    if (isAuthorized(req.headers, adminToken)) return true;
+    sendJson(res, 401, { error: "unauthorized" });
+    return false;
+  }
+  async function handleRequest(req, res) {
+    const corsHeaders = buildCorsHeaders(req.headers.origin);
+    if (corsHeaders) {
+      for (const [key, value] of Object.entries(corsHeaders)) {
+        res.setHeader(key, value);
+      }
     }
-  }
-  if (req.method === "OPTIONS") {
-    res.statusCode = 204;
-    res.end();
-    return;
-  }
-  if (!req.url || !req.method) {
-    sendJson(res, 400, { error: "bad request" });
-    return;
-  }
-  const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
-  if (req.method === "GET" && url.pathname === "/coupons") {
-    const domain = url.searchParams.get("domain")?.trim();
-    if (!domain) {
-      sendJson(res, 400, { error: "missing domain" });
+    if (req.method === "OPTIONS") {
+      res.statusCode = 204;
+      res.end();
       return;
     }
-    const codes = getCandidateCodesForDomain(db, domain);
-    const response = buildCouponResponse(domain, codes);
-    const ranked = rankCandidateCodes(
-      response.candidateCodes,
-      getResultsForDomain(db, domain)
-    );
-    sendJson(res, 200, { ...response, candidateCodes: ranked });
-    return;
-  }
-  if (req.method === "GET" && url.pathname === "/admin") {
-    const html = getAdminHtml();
-    if (!html) {
-      sendJson(res, 404, { error: "admin page not found" });
+    if (!req.url || !req.method) {
+      sendJson(res, 400, { error: "bad request" });
       return;
     }
-    res.statusCode = 200;
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.end(html);
-    return;
-  }
-  if (req.method === "GET" && url.pathname === "/admin/coupon-stats") {
-    const validation = validateDomainParam(url.searchParams.get("domain"));
-    if (!validation.ok) {
-      sendJson(res, 400, { error: validation.error });
+    const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
+    if (req.method === "GET" && url.pathname === "/coupons") {
+      const domain = url.searchParams.get("domain")?.trim();
+      if (!domain) {
+        sendJson(res, 400, { error: "missing domain" });
+        return;
+      }
+      const codes = getCandidateCodesForDomain(db, domain);
+      const response = buildCouponResponse(domain, codes);
+      const ranked = rankCandidateCodes(
+        response.candidateCodes,
+        getResultsForDomain(db, domain)
+      );
+      sendJson(res, 200, { ...response, candidateCodes: ranked });
       return;
     }
-    const codes = getCandidateCodesForDomain(db, validation.domain);
-    const history = getResultsForDomain(db, validation.domain);
-    sendJson(res, 200, {
-      domain: validation.domain,
-      codes: buildCouponStats(codes, history)
-    });
-    return;
-  }
-  if (req.method === "GET" && url.pathname === "/admin/coupons") {
-    sendJson(res, 200, {
-      coupons: getAllSeedData(db),
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-    });
-    return;
-  }
-  if (req.method === "DELETE" && url.pathname === "/admin/coupons") {
-    const validation = validateDomainParam(url.searchParams.get("domain"));
-    if (!validation.ok) {
-      sendJson(res, 400, { error: validation.error });
+    if (req.method === "GET" && url.pathname === "/admin") {
+      if (!requireAuth(req, res)) return;
+      const html = getAdminHtml();
+      if (!html) {
+        sendJson(res, 404, { error: "admin page not found" });
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.end(html);
       return;
     }
-    const result = deleteCouponDomain(db, validation.domain);
-    if (!result.deleted) {
-      sendJson(res, 404, {
-        error: "domain not seeded",
-        domain: result.domain
+    if (req.method === "GET" && url.pathname === "/admin/coupon-stats") {
+      if (!requireAuth(req, res)) return;
+      const validation = validateDomainParam(url.searchParams.get("domain"));
+      if (!validation.ok) {
+        sendJson(res, 400, { error: validation.error });
+        return;
+      }
+      const codes = getCandidateCodesForDomain(db, validation.domain);
+      const history = getResultsForDomain(db, validation.domain);
+      sendJson(res, 200, {
+        domain: validation.domain,
+        codes: buildCouponStats(codes, history)
       });
       return;
     }
-    sendJson(res, 200, { deleted: true, domain: result.domain });
-    return;
+    if (req.method === "GET" && url.pathname === "/admin/coupons") {
+      if (!requireAuth(req, res)) return;
+      sendJson(res, 200, {
+        coupons: getAllSeedData(db),
+        updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+      });
+      return;
+    }
+    if (req.method === "DELETE" && url.pathname === "/admin/coupons") {
+      if (!requireAuth(req, res)) return;
+      const validation = validateDomainParam(url.searchParams.get("domain"));
+      if (!validation.ok) {
+        sendJson(res, 400, { error: validation.error });
+        return;
+      }
+      const result = deleteCouponDomain(db, validation.domain);
+      if (!result.deleted) {
+        sendJson(res, 404, {
+          error: "domain not seeded",
+          domain: result.domain
+        });
+        return;
+      }
+      sendJson(res, 200, { deleted: true, domain: result.domain });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/results") {
+      let body;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, { error: "invalid json" });
+        return;
+      }
+      const validation = validateResultBody(body);
+      if (!validation.ok) {
+        sendJson(res, 400, { error: validation.error });
+        return;
+      }
+      const stored = appendResultRecord(db, {
+        domain: validation.domain,
+        code: validation.code,
+        success: validation.success,
+        savingsCents: validation.savingsCents,
+        finalTotalCents: validation.finalTotalCents
+      });
+      sendJson(res, 200, stored);
+      return;
+    }
+    if (req.method === "DELETE" && url.pathname === "/results") {
+      if (!requireAuth(req, res)) return;
+      const validation = validateDomainParam(url.searchParams.get("domain"));
+      if (!validation.ok) {
+        sendJson(res, 400, { error: validation.error });
+        return;
+      }
+      const result = deleteResultsForDomain(db, validation.domain);
+      sendJson(res, 200, result);
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/results") {
+      const validation = validateDomainParam(url.searchParams.get("domain"));
+      if (!validation.ok) {
+        sendJson(res, 400, { error: validation.error });
+        return;
+      }
+      const records = getResultsForDomain(db, validation.domain).map((r) => ({
+        code: r.code,
+        success: r.success,
+        savingsCents: r.savingsCents,
+        finalTotalCents: r.finalTotalCents,
+        testedAt: r.testedAt
+      }));
+      sendJson(res, 200, {
+        domain: validation.domain,
+        results: records
+      });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/admin/coupons") {
+      if (!requireAuth(req, res)) return;
+      let body;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, { error: "invalid json" });
+        return;
+      }
+      const validation = validateAdminBody(body);
+      if (!validation.ok) {
+        sendJson(res, 400, { error: validation.error });
+        return;
+      }
+      const result = upsertCouponCodes(
+        db,
+        validation.domain,
+        validation.candidateCodes
+      );
+      sendJson(res, 200, result);
+      return;
+    }
+    sendJson(res, 404, { error: "not found" });
   }
-  if (req.method === "POST" && url.pathname === "/results") {
-    let body;
-    try {
-      body = await readJsonBody(req);
-    } catch {
-      sendJson(res, 400, { error: "invalid json" });
-      return;
-    }
-    const validation = validateResultBody(body);
-    if (!validation.ok) {
-      sendJson(res, 400, { error: validation.error });
-      return;
-    }
-    const stored = appendResultRecord(db, {
-      domain: validation.domain,
-      code: validation.code,
-      success: validation.success,
-      savingsCents: validation.savingsCents,
-      finalTotalCents: validation.finalTotalCents
+  return createServer((req, res) => {
+    handleRequest(req, res).catch((err) => {
+      console.error("Salvare server error:", err);
+      if (!res.headersSent) {
+        sendJson(res, 500, { error: "internal" });
+      }
     });
-    sendJson(res, 200, stored);
-    return;
-  }
-  if (req.method === "DELETE" && url.pathname === "/results") {
-    const validation = validateDomainParam(url.searchParams.get("domain"));
-    if (!validation.ok) {
-      sendJson(res, 400, { error: validation.error });
-      return;
-    }
-    const result = deleteResultsForDomain(db, validation.domain);
-    sendJson(res, 200, result);
-    return;
-  }
-  if (req.method === "GET" && url.pathname === "/results") {
-    const validation = validateDomainParam(url.searchParams.get("domain"));
-    if (!validation.ok) {
-      sendJson(res, 400, { error: validation.error });
-      return;
-    }
-    const records = getResultsForDomain(db, validation.domain).map((r) => ({
-      code: r.code,
-      success: r.success,
-      savingsCents: r.savingsCents,
-      finalTotalCents: r.finalTotalCents,
-      testedAt: r.testedAt
-    }));
-    sendJson(res, 200, {
-      domain: validation.domain,
-      results: records
-    });
-    return;
-  }
-  if (req.method === "POST" && url.pathname === "/admin/coupons") {
-    let body;
-    try {
-      body = await readJsonBody(req);
-    } catch {
-      sendJson(res, 400, { error: "invalid json" });
-      return;
-    }
-    const validation = validateAdminBody(body);
-    if (!validation.ok) {
-      sendJson(res, 400, { error: validation.error });
-      return;
-    }
-    const result = upsertCouponCodes(
-      db,
-      validation.domain,
-      validation.candidateCodes
-    );
-    sendJson(res, 200, result);
-    return;
-  }
-  sendJson(res, 404, { error: "not found" });
-}
-var server = createServer((req, res) => {
-  handleRequest(req, res).catch((err) => {
-    console.error("Salvare server error:", err);
-    if (!res.headersSent) {
-      sendJson(res, 500, { error: "internal" });
-    }
   });
-});
-server.listen(port, () => {
-  console.log(`Salvare coupon API listening on http://localhost:${port}`);
-});
+}
+function main() {
+  const port = Number(process.env.PORT ?? DEFAULT_PORT);
+  const db = openDatabase(defaultDatabasePath());
+  const bootstrapStats = bootstrapIfEmpty(db);
+  if (bootstrapStats.bootstrapped) {
+    console.log(
+      `Salvare bootstrap on startup: imported ${bootstrapStats.storesImported} store(s) and ${bootstrapStats.codesImported} code(s) from coupons.seed.json`
+    );
+  }
+  const resultsBootstrapStats = bootstrapResultsIfEmpty(db);
+  if (resultsBootstrapStats.bootstrapped) {
+    console.log(
+      `Salvare bootstrap on startup: imported ${resultsBootstrapStats.resultsImported} result record(s) from coupon-results.json`
+    );
+  }
+  const adminToken = readAdminTokenFromEnv();
+  if (adminToken) {
+    console.log(
+      "Salvare admin auth: ENABLED (Authorization: Bearer <token> required for /admin* and DELETE /results)"
+    );
+  } else {
+    console.log(
+      "Salvare admin auth: DISABLED (set SALVARE_ADMIN_TOKEN to require a Bearer token; intended for local dev)"
+    );
+  }
+  const server = createSalvareServer({ db, adminToken });
+  server.listen(port, () => {
+    console.log(`Salvare coupon API listening on http://localhost:${port}`);
+  });
+}
+function isEntryPoint() {
+  const argv1 = process.argv[1];
+  if (!argv1) return false;
+  try {
+    return realpathSync(argv1) === fileURLToPath4(import.meta.url);
+  } catch {
+    return false;
+  }
+}
+if (isEntryPoint()) {
+  main();
+}
+export {
+  createSalvareServer
+};

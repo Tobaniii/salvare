@@ -17,6 +17,48 @@ Override the port with the `PORT` env var if 4123 is in use:
 PORT=4200 npm run start:server
 ```
 
+## Optional admin token
+
+By default the local server has no auth — fine for single-user local dev on `localhost`. To require a bearer token on admin and destructive endpoints, start the server with `SALVARE_ADMIN_TOKEN`:
+
+```bash
+SALVARE_ADMIN_TOKEN=$(openssl rand -hex 32) npm run start:server
+```
+
+The startup log line will read `Salvare admin auth: ENABLED`. The server never logs the token value itself — only whether auth is enabled or disabled. With auth enabled, protected endpoints reject requests without a matching `Authorization: Bearer <token>` header with `401 { "error": "unauthorized" }`.
+
+**Protected** (require `Authorization: Bearer <token>` when the env var is set):
+
+- `GET /admin`
+- `GET /admin/coupons`
+- `POST /admin/coupons`
+- `DELETE /admin/coupons`
+- `GET /admin/coupon-stats`
+- `DELETE /results`
+
+**Unprotected** (open even when the env var is set, so the unmodified extension keeps working and local read access is preserved):
+
+- `GET /coupons`
+- `POST /results`
+- `GET /results`
+
+`OPTIONS` preflight requests are unprotected and continue to return `204` regardless of token state, so browser CORS handshakes succeed.
+
+Example:
+
+```bash
+TOKEN="$SALVARE_ADMIN_TOKEN"
+curl -H "Authorization: Bearer $TOKEN" http://localhost:4123/admin/coupons
+curl -X POST http://localhost:4123/admin/coupons \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"domain":"example.com","candidateCodes":["WELCOME10"]}'
+```
+
+**Browser access to `/admin` with the token enabled.** Plain navigation in a browser cannot send an `Authorization` header, so opening `http://localhost:4123/admin` directly will return `401 { "error": "unauthorized" }`. To use the admin UI with the token enabled, fetch the page with curl/HTTPie (`curl -H "Authorization: Bearer $TOKEN" http://localhost:4123/admin`), use a browser extension that injects the header, or unset `SALVARE_ADMIN_TOKEN` while you use the UI. Adding a login form to the admin page is out of scope for this milestone.
+
+This is **local hardening** — useful on a shared dev machine, or to prevent accidental admin writes from a curl typo. It is **not** production auth: there is no rate limiting, no token rotation, no TLS termination, the public read endpoints stay open, and `POST /results` deliberately stays open so the extension keeps reporting without token wiring.
+
 ## Local database / reset
 
 Salvare stores all runtime data — coupon seed/admin entries and reported result history — in a single SQLite file at `server/salvare.db`. This file is **local runtime data and is gitignored; do not commit it.** The same applies to SQLite's sidecar files (`-journal`, `-wal`, `-shm`).

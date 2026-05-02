@@ -1,4 +1,11 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   buildCouponResponse,
   validateAdminBody,
@@ -23,22 +30,13 @@ import {
   deleteResultsForDomain,
   getResultsForDomain,
 } from "./db-results";
+import { isAuthorized, readAdminTokenFromEnv } from "./auth";
 
 const DEFAULT_PORT = 4123;
-const port = Number(process.env.PORT ?? DEFAULT_PORT);
 
-const db: Db = openDatabase(defaultDatabasePath());
-const bootstrapStats = bootstrapIfEmpty(db);
-if (bootstrapStats.bootstrapped) {
-  console.log(
-    `Salvare bootstrap on startup: imported ${bootstrapStats.storesImported} store(s) and ${bootstrapStats.codesImported} code(s) from coupons.seed.json`,
-  );
-}
-const resultsBootstrapStats = bootstrapResultsIfEmpty(db);
-if (resultsBootstrapStats.bootstrapped) {
-  console.log(
-    `Salvare bootstrap on startup: imported ${resultsBootstrapStats.resultsImported} result record(s) from coupon-results.json`,
-  );
+export interface SalvareServerOptions {
+  db: Db;
+  adminToken: string | null;
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown) {
@@ -57,190 +55,251 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   return JSON.parse(text);
 }
 
-async function handleRequest(req: IncomingMessage, res: ServerResponse) {
-  const corsHeaders = buildCorsHeaders(req.headers.origin);
-  if (corsHeaders) {
-    for (const [key, value] of Object.entries(corsHeaders)) {
-      res.setHeader(key, value);
+export function createSalvareServer(options: SalvareServerOptions): Server {
+  const { db, adminToken } = options;
+
+  function requireAuth(req: IncomingMessage, res: ServerResponse): boolean {
+    if (isAuthorized(req.headers, adminToken)) return true;
+    sendJson(res, 401, { error: "unauthorized" });
+    return false;
+  }
+
+  async function handleRequest(req: IncomingMessage, res: ServerResponse) {
+    const corsHeaders = buildCorsHeaders(req.headers.origin);
+    if (corsHeaders) {
+      for (const [key, value] of Object.entries(corsHeaders)) {
+        res.setHeader(key, value);
+      }
     }
-  }
 
-  if (req.method === "OPTIONS") {
-    res.statusCode = 204;
-    res.end();
-    return;
-  }
-
-  if (!req.url || !req.method) {
-    sendJson(res, 400, { error: "bad request" });
-    return;
-  }
-
-  const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
-
-  if (req.method === "GET" && url.pathname === "/coupons") {
-    const domain = url.searchParams.get("domain")?.trim();
-    if (!domain) {
-      sendJson(res, 400, { error: "missing domain" });
+    if (req.method === "OPTIONS") {
+      res.statusCode = 204;
+      res.end();
       return;
     }
-    const codes = getCandidateCodesForDomain(db, domain);
-    const response = buildCouponResponse(domain, codes);
-    const ranked = rankCandidateCodes(
-      response.candidateCodes,
-      getResultsForDomain(db, domain),
-    );
-    sendJson(res, 200, { ...response, candidateCodes: ranked });
-    return;
-  }
 
-  if (req.method === "GET" && url.pathname === "/admin") {
-    const html = getAdminHtml();
-    if (!html) {
-      sendJson(res, 404, { error: "admin page not found" });
+    if (!req.url || !req.method) {
+      sendJson(res, 400, { error: "bad request" });
       return;
     }
-    res.statusCode = 200;
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.end(html);
-    return;
-  }
 
-  if (req.method === "GET" && url.pathname === "/admin/coupon-stats") {
-    const validation = validateDomainParam(url.searchParams.get("domain"));
-    if (!validation.ok) {
-      sendJson(res, 400, { error: validation.error });
+    const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
+
+    if (req.method === "GET" && url.pathname === "/coupons") {
+      const domain = url.searchParams.get("domain")?.trim();
+      if (!domain) {
+        sendJson(res, 400, { error: "missing domain" });
+        return;
+      }
+      const codes = getCandidateCodesForDomain(db, domain);
+      const response = buildCouponResponse(domain, codes);
+      const ranked = rankCandidateCodes(
+        response.candidateCodes,
+        getResultsForDomain(db, domain),
+      );
+      sendJson(res, 200, { ...response, candidateCodes: ranked });
       return;
     }
-    const codes = getCandidateCodesForDomain(db, validation.domain);
-    const history = getResultsForDomain(db, validation.domain);
-    sendJson(res, 200, {
-      domain: validation.domain,
-      codes: buildCouponStats(codes, history),
-    });
-    return;
-  }
 
-  if (req.method === "GET" && url.pathname === "/admin/coupons") {
-    sendJson(res, 200, {
-      coupons: getAllSeedData(db),
-      updatedAt: new Date().toISOString(),
-    });
-    return;
-  }
-
-  if (req.method === "DELETE" && url.pathname === "/admin/coupons") {
-    const validation = validateDomainParam(url.searchParams.get("domain"));
-    if (!validation.ok) {
-      sendJson(res, 400, { error: validation.error });
+    if (req.method === "GET" && url.pathname === "/admin") {
+      if (!requireAuth(req, res)) return;
+      const html = getAdminHtml();
+      if (!html) {
+        sendJson(res, 404, { error: "admin page not found" });
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.end(html);
       return;
     }
-    const result = deleteCouponDomain(db, validation.domain);
-    if (!result.deleted) {
-      sendJson(res, 404, {
-        error: "domain not seeded",
-        domain: result.domain,
+
+    if (req.method === "GET" && url.pathname === "/admin/coupon-stats") {
+      if (!requireAuth(req, res)) return;
+      const validation = validateDomainParam(url.searchParams.get("domain"));
+      if (!validation.ok) {
+        sendJson(res, 400, { error: validation.error });
+        return;
+      }
+      const codes = getCandidateCodesForDomain(db, validation.domain);
+      const history = getResultsForDomain(db, validation.domain);
+      sendJson(res, 200, {
+        domain: validation.domain,
+        codes: buildCouponStats(codes, history),
       });
       return;
     }
-    sendJson(res, 200, { deleted: true, domain: result.domain });
-    return;
+
+    if (req.method === "GET" && url.pathname === "/admin/coupons") {
+      if (!requireAuth(req, res)) return;
+      sendJson(res, 200, {
+        coupons: getAllSeedData(db),
+        updatedAt: new Date().toISOString(),
+      });
+      return;
+    }
+
+    if (req.method === "DELETE" && url.pathname === "/admin/coupons") {
+      if (!requireAuth(req, res)) return;
+      const validation = validateDomainParam(url.searchParams.get("domain"));
+      if (!validation.ok) {
+        sendJson(res, 400, { error: validation.error });
+        return;
+      }
+      const result = deleteCouponDomain(db, validation.domain);
+      if (!result.deleted) {
+        sendJson(res, 404, {
+          error: "domain not seeded",
+          domain: result.domain,
+        });
+        return;
+      }
+      sendJson(res, 200, { deleted: true, domain: result.domain });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/results") {
+      let body: unknown;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, { error: "invalid json" });
+        return;
+      }
+
+      const validation = validateResultBody(body);
+      if (!validation.ok) {
+        sendJson(res, 400, { error: validation.error });
+        return;
+      }
+
+      const stored = appendResultRecord(db, {
+        domain: validation.domain,
+        code: validation.code,
+        success: validation.success,
+        savingsCents: validation.savingsCents,
+        finalTotalCents: validation.finalTotalCents,
+      });
+      sendJson(res, 200, stored);
+      return;
+    }
+
+    if (req.method === "DELETE" && url.pathname === "/results") {
+      if (!requireAuth(req, res)) return;
+      const validation = validateDomainParam(url.searchParams.get("domain"));
+      if (!validation.ok) {
+        sendJson(res, 400, { error: validation.error });
+        return;
+      }
+      const result = deleteResultsForDomain(db, validation.domain);
+      sendJson(res, 200, result);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/results") {
+      const validation = validateDomainParam(url.searchParams.get("domain"));
+      if (!validation.ok) {
+        sendJson(res, 400, { error: validation.error });
+        return;
+      }
+
+      const records = getResultsForDomain(db, validation.domain).map((r) => ({
+        code: r.code,
+        success: r.success,
+        savingsCents: r.savingsCents,
+        finalTotalCents: r.finalTotalCents,
+        testedAt: r.testedAt,
+      }));
+
+      sendJson(res, 200, {
+        domain: validation.domain,
+        results: records,
+      });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/admin/coupons") {
+      if (!requireAuth(req, res)) return;
+      let body: unknown;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, { error: "invalid json" });
+        return;
+      }
+
+      const validation = validateAdminBody(body);
+      if (!validation.ok) {
+        sendJson(res, 400, { error: validation.error });
+        return;
+      }
+
+      const result = upsertCouponCodes(
+        db,
+        validation.domain,
+        validation.candidateCodes,
+      );
+      sendJson(res, 200, result);
+      return;
+    }
+
+    sendJson(res, 404, { error: "not found" });
   }
 
-  if (req.method === "POST" && url.pathname === "/results") {
-    let body: unknown;
-    try {
-      body = await readJsonBody(req);
-    } catch {
-      sendJson(res, 400, { error: "invalid json" });
-      return;
-    }
-
-    const validation = validateResultBody(body);
-    if (!validation.ok) {
-      sendJson(res, 400, { error: validation.error });
-      return;
-    }
-
-    const stored = appendResultRecord(db, {
-      domain: validation.domain,
-      code: validation.code,
-      success: validation.success,
-      savingsCents: validation.savingsCents,
-      finalTotalCents: validation.finalTotalCents,
+  return createServer((req, res) => {
+    handleRequest(req, res).catch((err) => {
+      console.error("Salvare server error:", err);
+      if (!res.headersSent) {
+        sendJson(res, 500, { error: "internal" });
+      }
     });
-    sendJson(res, 200, stored);
-    return;
-  }
-
-  if (req.method === "DELETE" && url.pathname === "/results") {
-    const validation = validateDomainParam(url.searchParams.get("domain"));
-    if (!validation.ok) {
-      sendJson(res, 400, { error: validation.error });
-      return;
-    }
-    const result = deleteResultsForDomain(db, validation.domain);
-    sendJson(res, 200, result);
-    return;
-  }
-
-  if (req.method === "GET" && url.pathname === "/results") {
-    const validation = validateDomainParam(url.searchParams.get("domain"));
-    if (!validation.ok) {
-      sendJson(res, 400, { error: validation.error });
-      return;
-    }
-
-    const records = getResultsForDomain(db, validation.domain).map((r) => ({
-      code: r.code,
-      success: r.success,
-      savingsCents: r.savingsCents,
-      finalTotalCents: r.finalTotalCents,
-      testedAt: r.testedAt,
-    }));
-
-    sendJson(res, 200, {
-      domain: validation.domain,
-      results: records,
-    });
-    return;
-  }
-
-  if (req.method === "POST" && url.pathname === "/admin/coupons") {
-    let body: unknown;
-    try {
-      body = await readJsonBody(req);
-    } catch {
-      sendJson(res, 400, { error: "invalid json" });
-      return;
-    }
-
-    const validation = validateAdminBody(body);
-    if (!validation.ok) {
-      sendJson(res, 400, { error: validation.error });
-      return;
-    }
-
-    const result = upsertCouponCodes(
-      db,
-      validation.domain,
-      validation.candidateCodes,
-    );
-    sendJson(res, 200, result);
-    return;
-  }
-
-  sendJson(res, 404, { error: "not found" });
+  });
 }
 
-const server = createServer((req, res) => {
-  handleRequest(req, res).catch((err) => {
-    console.error("Salvare server error:", err);
-    if (!res.headersSent) {
-      sendJson(res, 500, { error: "internal" });
-    }
+function main() {
+  const port = Number(process.env.PORT ?? DEFAULT_PORT);
+
+  const db: Db = openDatabase(defaultDatabasePath());
+  const bootstrapStats = bootstrapIfEmpty(db);
+  if (bootstrapStats.bootstrapped) {
+    console.log(
+      `Salvare bootstrap on startup: imported ${bootstrapStats.storesImported} store(s) and ${bootstrapStats.codesImported} code(s) from coupons.seed.json`,
+    );
+  }
+  const resultsBootstrapStats = bootstrapResultsIfEmpty(db);
+  if (resultsBootstrapStats.bootstrapped) {
+    console.log(
+      `Salvare bootstrap on startup: imported ${resultsBootstrapStats.resultsImported} result record(s) from coupon-results.json`,
+    );
+  }
+
+  const adminToken = readAdminTokenFromEnv();
+  if (adminToken) {
+    console.log(
+      "Salvare admin auth: ENABLED (Authorization: Bearer <token> required for /admin* and DELETE /results)",
+    );
+  } else {
+    console.log(
+      "Salvare admin auth: DISABLED (set SALVARE_ADMIN_TOKEN to require a Bearer token; intended for local dev)",
+    );
+  }
+
+  const server = createSalvareServer({ db, adminToken });
+  server.listen(port, () => {
+    console.log(`Salvare coupon API listening on http://localhost:${port}`);
   });
-});
-server.listen(port, () => {
-  console.log(`Salvare coupon API listening on http://localhost:${port}`);
-});
+}
+
+function isEntryPoint(): boolean {
+  const argv1 = process.argv[1];
+  if (!argv1) return false;
+  try {
+    return realpathSync(argv1) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
+  main();
+}
