@@ -4,8 +4,6 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import { realpathSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import {
   buildCouponResponse,
   validateAdminBody,
@@ -16,9 +14,8 @@ import { validateResultBody } from "./results";
 import { buildCorsHeaders } from "./cors";
 import { rankCandidateCodes } from "./ranking";
 import { buildCouponStats } from "./stats";
-import { defaultDatabasePath, openDatabase, type Db } from "./db";
+import { type Db } from "./db";
 import {
-  bootstrapIfEmpty,
   deleteCouponDomain,
   getAllSeedData,
   getCandidateCodesForDomain,
@@ -26,13 +23,10 @@ import {
 } from "./db-coupons";
 import {
   appendResultRecord,
-  bootstrapResultsIfEmpty,
   deleteResultsForDomain,
   getResultsForDomain,
 } from "./db-results";
-import { isAuthorized, readAdminTokenFromEnv } from "./auth";
-
-const DEFAULT_PORT = 4123;
+import { isAuthorized } from "./auth";
 
 export interface SalvareServerOptions {
   db: Db;
@@ -253,52 +247,4 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
       }
     });
   });
-}
-
-function main() {
-  const port = Number(process.env.PORT ?? DEFAULT_PORT);
-
-  const db: Db = openDatabase(defaultDatabasePath());
-  const bootstrapStats = bootstrapIfEmpty(db);
-  if (bootstrapStats.bootstrapped) {
-    console.log(
-      `Salvare bootstrap on startup: imported ${bootstrapStats.storesImported} store(s) and ${bootstrapStats.codesImported} code(s) from coupons.seed.json`,
-    );
-  }
-  const resultsBootstrapStats = bootstrapResultsIfEmpty(db);
-  if (resultsBootstrapStats.bootstrapped) {
-    console.log(
-      `Salvare bootstrap on startup: imported ${resultsBootstrapStats.resultsImported} result record(s) from coupon-results.json`,
-    );
-  }
-
-  const adminToken = readAdminTokenFromEnv();
-  if (adminToken) {
-    console.log(
-      "Salvare admin auth: ENABLED (Authorization: Bearer <token> required for /admin* and DELETE /results)",
-    );
-  } else {
-    console.log(
-      "Salvare admin auth: DISABLED (set SALVARE_ADMIN_TOKEN to require a Bearer token; intended for local dev)",
-    );
-  }
-
-  const server = createSalvareServer({ db, adminToken });
-  server.listen(port, () => {
-    console.log(`Salvare coupon API listening on http://localhost:${port}`);
-  });
-}
-
-function isEntryPoint(): boolean {
-  const argv1 = process.argv[1];
-  if (!argv1) return false;
-  try {
-    return realpathSync(argv1) === fileURLToPath(import.meta.url);
-  } catch {
-    return false;
-  }
-}
-
-if (isEntryPoint()) {
-  main();
 }

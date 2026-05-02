@@ -9,15 +9,18 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest",
-    "build:extension": "esbuild extension/contentScript.ts --bundle --outfile=extension/contentScript.js && esbuild extension/popup.ts --bundle --outfile=extension/popup.js",
-    "build:server": "esbuild server/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=server/index.js --external:better-sqlite3",
-    "start:server": "node server/index.js",
+    "build:extension": "esbuild extension/contentScript.ts --bundle --outfile=extension/contentScript.js && esbuild extension/popup.ts --bundle --outfile=extension/popup.js && esbuild extension/background.ts --bundle --format=esm --outfile=extension/background.js",
+    "build:server": "esbuild server/main.ts --bundle --platform=node --target=node20 --format=esm --outfile=server/server.js --external:better-sqlite3",
+    "start:server": "node server/server.js",
     "build:db-init": "esbuild server/db-init.ts --bundle --platform=node --target=node20 --format=esm --outfile=server/db-init.js --external:better-sqlite3",
     "db:init": "npm run build:db-init && node server/db-init.js",
     "build:db-bootstrap": "esbuild server/db-bootstrap-cli.ts --bundle --platform=node --target=node20 --format=esm --outfile=server/db-bootstrap-cli.js --external:better-sqlite3",
     "db:bootstrap": "npm run build:db-bootstrap && node server/db-bootstrap-cli.js",
-    "test:smoke": "playwright test",
-    "test:all": "npm test -- --run && npm run test:smoke"
+    "build:extension-harness": "esbuild smoke/extension-server-harness.ts --bundle --platform=node --target=node20 --format=esm --outfile=smoke/extension-server-harness.js --external:better-sqlite3",
+    "test:smoke": "playwright test --project=chromium",
+    "test:smoke:extension": "npm run build:extension && npm run build:extension-harness && playwright test --project=extension",
+    "test:smoke:all": "npm run test:smoke && npm run test:smoke:extension",
+    "test:all": "npm test -- --run && npm run test:smoke:all"
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",

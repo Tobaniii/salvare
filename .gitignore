@@ -19,11 +19,13 @@ server/salvare.db-wal
 server/salvare.db-shm
 server/db-init.js
 server/db-bootstrap-cli.js
+server/server.js
 
 # Playwright smoke tests
 playwright-report
 test-results
 .playwright
+smoke/extension-server-harness.js
 
 # Editor directories and files
 .vscode/*

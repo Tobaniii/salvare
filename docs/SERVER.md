@@ -7,9 +7,11 @@ Runtime persistence is SQLite at `server/salvare.db`. The two JSON files in `ser
 ## Run it locally
 
 ```bash
-npm run build:server   # bundles server/index.ts with esbuild
+npm run build:server   # bundles server/main.ts → server/server.js with esbuild
 npm run start:server   # runs the bundled server on http://localhost:4123
 ```
+
+Note: the entry point is [`server/main.ts`](../server/main.ts) (process bootstrap — opens the DB, runs bootstrap, reads `SALVARE_ADMIN_TOKEN`, listens). [`server/index.ts`](../server/index.ts) is a pure library that exports `createSalvareServer` and never auto-runs, so smoke harnesses and tests can import the factory without spawning a second listener.
 
 Override the port with the `PORT` env var if 4123 is in use:
 
@@ -46,6 +48,45 @@ What the smoke suite covers:
 - `smoke/auth.smoke.ts` — boots the same server with `SALVARE_ADMIN_TOKEN` configured and verifies that browser navigation to `/admin` returns 401, protected admin endpoints reject without/accept with `Authorization: Bearer …`, and the unprotected endpoints (`GET /coupons`, `POST /results`) stay open.
 
 Each test starts its own server on `127.0.0.1` with an OS-assigned port via the `createSalvareServer` factory in [`server/index.ts`](../server/index.ts), so smoke runs do not collide with a developer's running `npm run start:server` and do not touch the developer's local database.
+
+### Extension smoke tests
+
+Extension smoke tests live in [`smoke/extension/`](../smoke/extension/). They drive the unpacked Salvare Chrome extension in Playwright Chromium against the local React demo at `http://localhost:5173`. **No external sites are automated** in this milestone — Shopify and WooCommerce profiles are exercised manually for now.
+
+Run:
+
+```bash
+npm run test:smoke:extension
+```
+
+This script chains `npm run build:extension` (so the extension bundle is fresh), `npm run build:extension-harness` (isolated Salvare server bundle), and then `playwright test --project=extension`. Combine with the backend/admin suite via `npm run test:smoke:all`.
+
+What the suite covers:
+
+- **`smoke/extension/extension.smoke.ts`** — supported flow: opens `http://localhost:5173` in a Playwright tab with the Salvare extension loaded, opens the popup at `chrome-extension://<id>/popup.html`, asserts it shows the readiness block, clicks **Find Best Coupon**, asserts the popup reports a winning code (one of `SAVE10` / `TAKE15` / `FREESHIP`), asserts the React app's grand-total now matches the popup's reported final total, and asserts the harness backend received at least one successful result report. Plus an unsupported-page test that navigates to a `data:text/html,…` URL (which the extension's `<all_urls>` content-script filter does not match), so the popup's `sendMessage` returns no responder and the popup surfaces the `UNSUPPORTED_FALLBACK` message ("Open a supported checkout page to use Salvare.").
+
+How the suite isolates state:
+
+- A fresh Chromium **persistent context** with a temp `userDataDir` is created per test via `chromium.launchPersistentContext` (loaded with the unpacked `extension/` directory) and removed on teardown — no cross-test browser state leaks.
+- The Salvare backend is spawned as a subprocess by Playwright's `globalSetup` ([`smoke/extension/global-setup.ts`](../smoke/extension/global-setup.ts) + the bundled [`smoke/extension-server-harness.ts`](../smoke/extension-server-harness.ts)). It opens `:memory:` SQLite, pre-seeded with the localhost coupon list, and binds on **port 4123 across all interfaces** so the extension's `http://localhost:4123` requests reach it whether `localhost` resolves to IPv4 or IPv6. The developer's `server/salvare.db` is never opened. The harness is killed on test teardown.
+- Playwright's `webServer` config also spawns Vite (`npm run dev`) for the React demo at `http://localhost:5173`.
+- If port 4123 is already in use (e.g. a developer's `npm run start:server` is running), `globalSetup` exits up-front with a clear message asking them to stop the existing server. The probe binds without a host argument so it sees both IPv4 and IPv6 listeners. The harness does not auto-kill any existing process.
+
+How the popup is driven without a clickable toolbar icon:
+
+- The popup is opened in a regular tab via its `chrome-extension://` URL.
+- Before `popup.js` runs, the test injects an `addInitScript` that wraps `chrome.tabs.query` so the popup's "active tab" lookup resolves to the checkout tab (matched by URL prefix) instead of the popup tab itself. The popup script is otherwise unchanged; the rewrite is purely test-side.
+
+About the no-op background service worker:
+
+- [`extension/background.ts`](../extension/background.ts) exists **only** so Playwright can discover the extension's runtime ID via `context.serviceWorkers()`. It logs one line on activation (so the bundled file is non-empty — Chromium's headless mode rejects 0-byte service workers) and registers no listeners. No message handlers, no storage, no network access. The popup, content script, and result reporter are unaffected. If you ever add real background behavior, update the comment at the top of `background.ts` and this section.
+- The smoke suite uses Chromium's **new headless mode** (`--headless=new`) since classic headless does not load extensions. Set `SALVARE_SMOKE_HEADED=1` to run with a visible window if a host environment misbehaves with new headless.
+
+One-time browser install (same as the backend smoke suite):
+
+```bash
+npx playwright install chromium
+```
 
 ## Optional admin token
 

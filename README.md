@@ -88,8 +88,11 @@ See [`docs/SERVER.md`](docs/SERVER.md), [`docs/SEED_DATA.md`](docs/SEED_DATA.md)
 npm install
 npm run dev          # start the local checkout demo
 npm test             # run Vitest unit tests
-npm run test:smoke   # run Playwright smoke tests (one-time: npx playwright install chromium)
-npm run test:all     # unit tests + smoke tests
+npm run test:smoke              # backend/admin Playwright smoke tests
+npm run test:smoke:extension    # Chrome extension smoke on the local React checkout
+npm run test:smoke:all          # backend/admin + extension smoke
+npm run test:all                # unit tests + all smoke tests
+# one-time: npx playwright install chromium
 ```
 
 Smoke tests cover the local backend and the admin page UI in Chromium with an isolated in-memory database; the Chrome extension is not covered. See [`docs/SERVER.md`](docs/SERVER.md) for details.
