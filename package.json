@@ -10,15 +10,19 @@
     "preview": "vite preview",
     "test": "vitest",
     "build:extension": "esbuild extension/contentScript.ts --bundle --outfile=extension/contentScript.js && esbuild extension/popup.ts --bundle --outfile=extension/popup.js",
-    "build:server": "esbuild server/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=server/index.js",
-    "start:server": "node server/index.js"
+    "build:server": "esbuild server/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=server/index.js --external:better-sqlite3",
+    "start:server": "node server/index.js",
+    "build:db-init": "esbuild server/db-init.ts --bundle --platform=node --target=node20 --format=esm --outfile=server/db-init.js --external:better-sqlite3",
+    "db:init": "npm run build:db-init && node server/db-init.js"
   },
   "dependencies": {
+    "better-sqlite3": "^12.9.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/chrome": "^0.1.40",
     "@types/node": "^24.12.2",
     "@types/react": "^19.2.14",

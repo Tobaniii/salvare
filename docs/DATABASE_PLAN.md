@@ -98,7 +98,17 @@ Ranking rules and `buildCouponStats` are unchanged — they still operate on arr
 - **Dependency choice.** `better-sqlite3` is synchronous, small, and avoids an async refactor of the existing handlers. `node:sqlite` (Node 22+) and the older `sqlite3` package are alternatives but trade portability or ergonomics. The choice can be revisited in Phase 1 if installation friction surfaces.
 - **Extension behavior.** Not touched at any phase. Each phase ends with `npm run build:extension` and the existing 99-test suite green.
 
-## 9. Out of scope
+## 9. Phase 1 status
+
+Phase 1 has landed: the SQLite dependency and schema setup are in place. No routes are wired to the database yet.
+
+- `npm run build:db-init` bundles `server/db-init.ts` to `server/db-init.js` (esbuild, with `better-sqlite3` kept external).
+- `npm run db:init` builds the script and runs it via `node`. The script opens (or creates) `server/salvare.db` next to the existing JSON files and applies the schema. It is idempotent — re-running does nothing harmful.
+- `server/salvare.db` (and SQLite's sidecar files: `-journal`, `-wal`, `-shm`) is local runtime data and is ignored by Git. The bundled `server/db-init.js` is also ignored. To reset the local database, delete `server/salvare.db` and re-run `npm run db:init`.
+
+Phase 2 will start using this connection from the existing route handlers.
+
+## 10. Out of scope
 
 - Hosted database, replication, or remote sync.
 - Auth, rate limiting, multi-tenant data partitioning.

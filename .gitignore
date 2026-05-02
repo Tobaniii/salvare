@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Local SQLite database — runtime data, regenerated on demand
+server/salvare.db
+server/salvare.db-journal
+server/salvare.db-wal
+server/salvare.db-shm
+server/db-init.js
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
