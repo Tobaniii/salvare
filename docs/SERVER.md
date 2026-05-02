@@ -59,15 +59,15 @@ The startup log line will read `Salvare admin auth: ENABLED`. The server never l
 
 **Protected** (require `Authorization: Bearer <token>` when the env var is set):
 
-- `GET /admin`
 - `GET /admin/coupons`
 - `POST /admin/coupons`
 - `DELETE /admin/coupons`
 - `GET /admin/coupon-stats`
 - `DELETE /results`
 
-**Unprotected** (open even when the env var is set, so the unmodified extension keeps working and local read access is preserved):
+**Unprotected** (open even when the env var is set, so the unmodified extension keeps working, the admin page can load and prompt for a token, and local read access is preserved):
 
+- `GET /admin` — returns the static admin shell. The page itself prompts for the token and uses it for the protected admin endpoints. See [Using the admin UI in token mode](#using-the-admin-ui-in-token-mode) below.
 - `GET /coupons`
 - `POST /results`
 - `GET /results`
@@ -85,7 +85,18 @@ curl -X POST http://localhost:4123/admin/coupons \
   -d '{"domain":"example.com","candidateCodes":["WELCOME10"]}'
 ```
 
-**Browser access to `/admin` with the token enabled.** Plain navigation in a browser cannot send an `Authorization` header, so opening `http://localhost:4123/admin` directly will return `401 { "error": "unauthorized" }`. To use the admin UI with the token enabled, fetch the page with curl/HTTPie (`curl -H "Authorization: Bearer $TOKEN" http://localhost:4123/admin`), use a browser extension that injects the header, or unset `SALVARE_ADMIN_TOKEN` while you use the UI. Adding a login form to the admin page is out of scope for this milestone.
+### Using the admin UI in token mode
+
+`GET /admin` is unprotected so the static admin shell can load in a browser even when token auth is on. The shell renders an "Admin token required or invalid" banner and an **Admin token** bar at the top of the page until a valid token is provided.
+
+1. Open `http://localhost:4123/admin` in a browser.
+2. Paste the token into the **Admin token** input (rendered as a password field) and click **Save**. The token is stored in `localStorage` under the key `salvareAdminToken`. The input is cleared after Save and the stored value is never displayed back; the token-status line just reads "Token saved (stored locally in this browser)." after a save or page reload.
+3. The page reloads the coupon data using `Authorization: Bearer <token>` and the unauthorized banner disappears. Subsequent reloads pick up the stored token automatically.
+4. Click **Clear** to remove the token from storage; the page returns to the unauthorized state.
+
+If the token is wrong, the page surfaces the unauthorized banner instead of crashing. The form-submit and Delete handlers also surface "Save failed: unauthorized." / "Delete failed: unauthorized." in the status line if the protected endpoint returns 401.
+
+The `localStorage` token is plaintext on disk and readable by any script with access to the same origin in the same browser profile. Same threat model as everything else on this local-only page; acceptable for local hardening, not key custody. Clear the token (or close the browser profile) when you're done.
 
 This is **local hardening** — useful on a shared dev machine, or to prevent accidental admin writes from a curl typo. It is **not** production auth: there is no rate limiting, no token rotation, no TLS termination, the public read endpoints stay open, and `POST /results` deliberately stays open so the extension keeps reporting without token wiring.
 

@@ -107,6 +107,61 @@
       #status.ok {
         color: #166534;
       }
+      .token-bar {
+        border: 1px solid #e2e2e2;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 16px;
+        background: #fafafa;
+      }
+      .token-bar h2 {
+        margin: 0 0 8px;
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #555;
+      }
+      .token-bar .token-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .token-bar input[type="password"] {
+        flex: 1 1 280px;
+        padding: 8px 10px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        font-size: 14px;
+      }
+      .token-bar button {
+        margin: 0;
+      }
+      .token-bar button.secondary {
+        background: #6b7280;
+      }
+      .token-bar button.secondary:hover {
+        background: #4b5563;
+      }
+      #token-status {
+        font-size: 13px;
+        min-height: 18px;
+        margin-top: 8px;
+        color: #555;
+      }
+      #auth-banner {
+        display: none;
+        border: 1px solid #fca5a5;
+        background: #fef2f2;
+        color: #b91c1c;
+        padding: 10px 14px;
+        border-radius: 8px;
+        margin-bottom: 16px;
+        font-size: 14px;
+      }
+      #auth-banner.visible {
+        display: block;
+      }
       footer {
         margin-top: 32px;
         font-size: 12px;
@@ -120,6 +175,25 @@
       Manage seeded coupon candidates served by the local backend at
       <code>localhost:4123</code>. Local development only.
     </p>
+
+    <section class="token-bar" aria-label="Admin token">
+      <h2>Admin token</h2>
+      <div class="token-row">
+        <input
+          id="token-input"
+          type="password"
+          placeholder="Paste admin token (only required if SALVARE_ADMIN_TOKEN is set)"
+          autocomplete="off"
+        />
+        <button id="token-save" type="button">Save</button>
+        <button id="token-clear" type="button" class="secondary">Clear</button>
+      </div>
+      <div id="token-status"></div>
+    </section>
+
+    <div id="auth-banner" role="alert">
+      Admin token required or invalid. Paste a valid token above and click Save.
+    </div>
 
     <h2>Seeded coupons</h2>
     <div id="domains"></div>
@@ -160,6 +234,64 @@
       var domainInput = document.getElementById("domain-input");
       var codesInput = document.getElementById("codes-input");
       var statusEl = document.getElementById("status");
+      var tokenInput = document.getElementById("token-input");
+      var tokenSaveBtn = document.getElementById("token-save");
+      var tokenClearBtn = document.getElementById("token-clear");
+      var tokenStatusEl = document.getElementById("token-status");
+      var authBanner = document.getElementById("auth-banner");
+
+      var TOKEN_STORAGE_KEY = "salvareAdminToken";
+
+      function getStoredToken() {
+        try {
+          return localStorage.getItem(TOKEN_STORAGE_KEY) || "";
+        } catch (e) {
+          return "";
+        }
+      }
+
+      function setStoredToken(value) {
+        try {
+          localStorage.setItem(TOKEN_STORAGE_KEY, value);
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      function clearStoredToken() {
+        try {
+          localStorage.removeItem(TOKEN_STORAGE_KEY);
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      function authHeaders(extra) {
+        var headers = extra ? Object.assign({}, extra) : {};
+        var token = getStoredToken();
+        if (token) headers["Authorization"] = "Bearer " + token;
+        return headers;
+      }
+
+      function setAuthBannerVisible(visible) {
+        if (visible) {
+          authBanner.classList.add("visible");
+        } else {
+          authBanner.classList.remove("visible");
+        }
+      }
+
+      function setTokenStatus(message) {
+        tokenStatusEl.textContent = message || "";
+      }
+
+      function refreshTokenStatusFromStorage() {
+        if (getStoredToken()) {
+          setTokenStatus("Token saved (stored locally in this browser).");
+        } else {
+          setTokenStatus("No token stored.");
+        }
+      }
 
       function setStatus(message, kind) {
         statusEl.textContent = message;
@@ -249,6 +381,7 @@
       function fetchStats(domain) {
         return fetch(
           "/admin/coupon-stats?domain=" + encodeURIComponent(domain),
+          { headers: authHeaders() },
         )
           .then(function (r) {
             if (!r.ok) throw new Error("HTTP " + r.status);
@@ -280,12 +413,19 @@
       }
 
       function loadCoupons() {
-        return fetch("/admin/coupons")
+        return fetch("/admin/coupons", { headers: authHeaders() })
           .then(function (r) {
+            if (r.status === 401) {
+              setAuthBannerVisible(true);
+              domainsEl.innerHTML = "";
+              return null;
+            }
             if (!r.ok) throw new Error("HTTP " + r.status);
+            setAuthBannerVisible(false);
             return r.json();
           })
           .then(function (data) {
+            if (data === null) return;
             var coupons = data.coupons || {};
             var domains = Object.keys(coupons);
             return Promise.all(
@@ -319,13 +459,20 @@
         setStatus("");
         fetch("/admin/coupons?domain=" + encodeURIComponent(domain), {
           method: "DELETE",
+          headers: authHeaders(),
         })
           .then(function (r) {
+            if (r.status === 401) {
+              setAuthBannerVisible(true);
+              setStatus("Delete failed: unauthorized.", "error");
+              return null;
+            }
             return r.json().then(function (body) {
               return { ok: r.ok, body: body };
             });
           })
           .then(function (result) {
+            if (result === null) return;
             if (!result.ok) {
               setStatus(
                 "Delete failed: " + (result.body.error || "unknown error"),
@@ -359,15 +506,21 @@
 
         fetch("/admin/coupons", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ domain: domain, candidateCodes: candidateCodes }),
         })
           .then(function (r) {
+            if (r.status === 401) {
+              setAuthBannerVisible(true);
+              setStatus("Save failed: unauthorized.", "error");
+              return null;
+            }
             return r.json().then(function (body) {
               return { ok: r.ok, body: body };
             });
           })
           .then(function (result) {
+            if (result === null) return;
             if (!result.ok) {
               setStatus(
                 "Save failed: " + (result.body.error || "unknown error"),
@@ -385,6 +538,28 @@
           });
       });
 
+      tokenSaveBtn.addEventListener("click", function () {
+        var value = tokenInput.value.trim();
+        if (!value) {
+          setTokenStatus("Enter a token before clicking Save.");
+          return;
+        }
+        setStoredToken(value);
+        tokenInput.value = "";
+        setTokenStatus("Token saved (stored locally in this browser).");
+        setStatus("");
+        loadCoupons();
+      });
+
+      tokenClearBtn.addEventListener("click", function () {
+        clearStoredToken();
+        tokenInput.value = "";
+        setTokenStatus("Token cleared.");
+        setStatus("");
+        loadCoupons();
+      });
+
+      refreshTokenStatusFromStorage();
       loadCoupons();
     </script>
   </body>

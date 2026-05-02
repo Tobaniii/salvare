@@ -102,7 +102,6 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
     }
 
     if (req.method === "GET" && url.pathname === "/admin") {
-      if (!requireAuth(req, res)) return;
       const html = getAdminHtml();
       if (!html) {
         sendJson(res, 404, { error: "admin page not found" });

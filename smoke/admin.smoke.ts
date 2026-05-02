@@ -16,7 +16,7 @@ test.describe("admin page UI", () => {
 
     await page.locator("#domain-input").fill("ui-add.com");
     await page.locator("#codes-input").fill("ADD1, ADD2");
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.locator("#admin-form button[type=submit]").click();
 
     await expect(page.locator("#status")).toHaveText("Saved ui-add.com.");
     const addedDomain = page.locator(".domain-name", { hasText: "ui-add.com" });
@@ -30,7 +30,7 @@ test.describe("admin page UI", () => {
 
     await page.locator("#domain-input").fill("ui-add.com");
     await page.locator("#codes-input").fill("ADD3");
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.locator("#admin-form button[type=submit]").click();
     await expect(page.locator("#status")).toHaveText("Saved ui-add.com.");
     await expect(addedSection.locator("tbody tr")).toHaveCount(1);
     await expect(addedSection.locator("tbody tr").nth(0)).toContainText("ADD3");

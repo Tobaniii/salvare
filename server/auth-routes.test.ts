@@ -45,7 +45,6 @@ const PROTECTED_ENDPOINTS: Array<{
   path: string;
   init: RequestInit;
 }> = [
-  { name: "GET /admin", path: "/admin", init: { method: "GET" } },
   {
     name: "GET /admin/coupons",
     path: "/admin/coupons",
@@ -176,14 +175,15 @@ describe("auth enabled (SALVARE_ADMIN_TOKEN set)", () => {
     );
   });
 
-  describe("accepts with correct Bearer token", () => {
-    it("GET /admin returns admin HTML", async () => {
-      const res = await fetch(`${h.baseUrl}/admin`, {
-        headers: { Authorization: `Bearer ${TOKEN}` },
-      });
+  describe("GET /admin stays unprotected (Option B)", () => {
+    it("returns 200 with no Authorization header even when token is configured", async () => {
+      const res = await fetch(`${h.baseUrl}/admin`);
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toMatch(/text\/html/);
     });
+  });
+
+  describe("accepts with correct Bearer token", () => {
 
     it("GET /admin/coupons returns coupon map", async () => {
       const res = await fetch(`${h.baseUrl}/admin/coupons`, {
