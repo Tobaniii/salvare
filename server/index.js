@@ -239,6 +239,16 @@ function getResultsForDomain(domain) {
   const trimmed = domain.trim();
   return runtimeResults.filter((r) => r.domain === trimmed);
 }
+function deleteResultsForDomain(domain) {
+  const trimmed = domain.trim();
+  const before = runtimeResults.length;
+  runtimeResults = runtimeResults.filter((r) => r.domain !== trimmed);
+  const deletedCount = before - runtimeResults.length;
+  if (deletedCount > 0) {
+    persistFn2();
+  }
+  return { domain: trimmed, deletedCount };
+}
 
 // server/cors.ts
 var ALLOWED_ORIGINS = /* @__PURE__ */ new Set([
@@ -425,6 +435,16 @@ async function handleRequest(req, res) {
       finalTotalCents: validation.finalTotalCents
     });
     sendJson(res, 200, stored);
+    return;
+  }
+  if (req.method === "DELETE" && url.pathname === "/results") {
+    const validation = validateDomainParam(url.searchParams.get("domain"));
+    if (!validation.ok) {
+      sendJson(res, 400, { error: validation.error });
+      return;
+    }
+    const result = deleteResultsForDomain(validation.domain);
+    sendJson(res, 200, result);
     return;
   }
   if (req.method === "GET" && url.pathname === "/results") {

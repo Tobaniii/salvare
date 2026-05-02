@@ -135,6 +135,19 @@ export function getResultsForDomain(domain: string): ResultRecord[] {
   return runtimeResults.filter((r) => r.domain === trimmed);
 }
 
+export function deleteResultsForDomain(
+  domain: string,
+): { domain: string; deletedCount: number } {
+  const trimmed = domain.trim();
+  const before = runtimeResults.length;
+  runtimeResults = runtimeResults.filter((r) => r.domain !== trimmed);
+  const deletedCount = before - runtimeResults.length;
+  if (deletedCount > 0) {
+    persistFn();
+  }
+  return { domain: trimmed, deletedCount };
+}
+
 export function getAllResults(): ResultRecord[] {
   return [...runtimeResults];
 }

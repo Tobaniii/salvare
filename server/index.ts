@@ -11,6 +11,7 @@ import {
 import { getAdminHtml } from "./admin";
 import {
   appendResult,
+  deleteResultsForDomain,
   getResultsForDomain,
   loadResultsFromDisk,
   validateResultBody,
@@ -134,6 +135,17 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       finalTotalCents: validation.finalTotalCents,
     });
     sendJson(res, 200, stored);
+    return;
+  }
+
+  if (req.method === "DELETE" && url.pathname === "/results") {
+    const validation = validateDomainParam(url.searchParams.get("domain"));
+    if (!validation.ok) {
+      sendJson(res, 400, { error: validation.error });
+      return;
+    }
+    const result = deleteResultsForDomain(validation.domain);
+    sendJson(res, 200, result);
     return;
   }
 

@@ -201,6 +201,23 @@ curl 'http://localhost:4123/results?domain=example.com'
 
 Missing or empty `domain` query parameter → `400 { "error": "missing domain" }`.
 
+### Clear history for a domain
+
+```bash
+curl -X DELETE 'http://localhost:4123/results?domain=example.com'
+```
+
+```json
+{
+  "domain": "example.com",
+  "deletedCount": 3
+}
+```
+
+- Idempotent: calling on a domain with no records returns `deletedCount: 0` and `200`.
+- Other domains' records are left untouched.
+- Missing or empty `domain` query parameter → `400 { "error": "missing domain" }`.
+
 ## CORS for local development
 
 The server allows result-reporting POSTs (and other API calls) from a small allowlist of local development origins. When the request `Origin` header matches the allowlist, the server echoes it back in `Access-Control-Allow-Origin` and includes the methods and headers needed for the extension's `fetch` calls.

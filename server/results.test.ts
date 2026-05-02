@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   appendResult,
+  deleteResultsForDomain,
   getResultsForDomain,
   resetResultsForTests,
   setResultsPersistForTests,
@@ -157,5 +158,96 @@ describe("results store", () => {
       finalTotalCents: 900,
     });
     expect(getResultsForDomain("missing.com")).toEqual([]);
+  });
+});
+
+describe("deleteResultsForDomain", () => {
+  beforeEach(() => {
+    setResultsPersistForTests(() => {});
+    resetResultsForTests();
+  });
+
+  it("deletes records for a domain with existing history", () => {
+    appendResult({
+      domain: "a.com",
+      code: "A1",
+      success: true,
+      savingsCents: 100,
+      finalTotalCents: 900,
+    });
+    appendResult({
+      domain: "a.com",
+      code: "A2",
+      success: false,
+      savingsCents: 0,
+      finalTotalCents: 1000,
+    });
+    appendResult({
+      domain: "b.com",
+      code: "B1",
+      success: true,
+      savingsCents: 50,
+      finalTotalCents: 950,
+    });
+
+    const result = deleteResultsForDomain("a.com");
+    expect(result).toEqual({ domain: "a.com", deletedCount: 2 });
+    expect(getResultsForDomain("a.com")).toEqual([]);
+  });
+
+  it("returns deletedCount: 0 for a domain with no records", () => {
+    appendResult({
+      domain: "a.com",
+      code: "A1",
+      success: true,
+      savingsCents: 100,
+      finalTotalCents: 900,
+    });
+
+    const result = deleteResultsForDomain("b.com");
+    expect(result).toEqual({ domain: "b.com", deletedCount: 0 });
+    expect(getResultsForDomain("a.com")).toHaveLength(1);
+  });
+
+  it("preserves records for other domains", () => {
+    appendResult({
+      domain: "a.com",
+      code: "A1",
+      success: true,
+      savingsCents: 100,
+      finalTotalCents: 900,
+    });
+    appendResult({
+      domain: "b.com",
+      code: "B1",
+      success: true,
+      savingsCents: 50,
+      finalTotalCents: 950,
+    });
+
+    deleteResultsForDomain("a.com");
+    const others = getResultsForDomain("b.com");
+    expect(others).toHaveLength(1);
+    expect(others[0]).toMatchObject({
+      domain: "b.com",
+      code: "B1",
+      success: true,
+      savingsCents: 50,
+      finalTotalCents: 950,
+    });
+  });
+
+  it("trims whitespace before deleting", () => {
+    appendResult({
+      domain: "a.com",
+      code: "A1",
+      success: true,
+      savingsCents: 100,
+      finalTotalCents: 900,
+    });
+
+    const result = deleteResultsForDomain("  a.com  ");
+    expect(result).toEqual({ domain: "a.com", deletedCount: 1 });
+    expect(getResultsForDomain("a.com")).toEqual([]);
   });
 });
