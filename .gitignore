@@ -37,3 +37,4 @@ smoke/extension-server-harness.js
 *.njsproj
 *.sln
 *.sw?
+smoke/salvare.db
