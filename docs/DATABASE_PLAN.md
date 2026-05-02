@@ -108,6 +108,14 @@ Phase 1 has landed: the SQLite dependency and schema setup are in place. No rout
 
 Phase 2 will start using this connection from the existing route handlers.
 
+### Phase 2 — JSON-to-SQLite bootstrap
+
+A bootstrap step lands ahead of the route swap so the database can be populated from existing JSON files.
+
+- `npm run db:bootstrap` bundles `server/db-bootstrap-cli.ts` and runs it. The script imports `server/coupons.seed.json` and `server/coupon-results.json` into `server/salvare.db`.
+- Seed and coupon-code imports are idempotent: stores and codes are inserted with `INSERT OR IGNORE`, so repeated runs report zero new rows.
+- Result history is cleared and reimported from the JSON file on every bootstrap run. The JSON file remains the source of truth in Phase 2 — routes still write to JSON, and the DB mirror is rebuilt on demand. This will be revisited in Phase 4 when routes start writing directly to the DB.
+
 ## 10. Out of scope
 
 - Hosted database, replication, or remote sync.

@@ -18,6 +18,7 @@ server/salvare.db-journal
 server/salvare.db-wal
 server/salvare.db-shm
 server/db-init.js
+server/db-bootstrap-cli.js
 
 # Editor directories and files
 .vscode/*

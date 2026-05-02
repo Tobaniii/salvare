@@ -13,7 +13,9 @@
     "build:server": "esbuild server/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=server/index.js --external:better-sqlite3",
     "start:server": "node server/index.js",
     "build:db-init": "esbuild server/db-init.ts --bundle --platform=node --target=node20 --format=esm --outfile=server/db-init.js --external:better-sqlite3",
-    "db:init": "npm run build:db-init && node server/db-init.js"
+    "db:init": "npm run build:db-init && node server/db-init.js",
+    "build:db-bootstrap": "esbuild server/db-bootstrap-cli.ts --bundle --platform=node --target=node20 --format=esm --outfile=server/db-bootstrap-cli.js --external:better-sqlite3",
+    "db:bootstrap": "npm run build:db-bootstrap && node server/db-bootstrap-cli.js"
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",
