@@ -76,6 +76,8 @@ http://localhost:4123/admin
 
 The page lists every seeded domain and includes a small form to add or update a domain. Enter the domain, type the candidate codes comma-separated (e.g. `WELCOME10, SAVE15`), and click **Save**. The list refreshes after the server confirms the change. Local development only — there is no auth, and the page is served from `localhost`.
 
+Each domain section now shows per-code stats — current rank, success count, failure count, average savings, and the last successful test date — sourced from `GET /admin/coupon-stats?domain=…`. If the stats fetch fails for a single domain, the page still renders that domain with "Stats unavailable." instead of breaking the whole list.
+
 The page is `server/admin.html`, served as-is; it sits next to the bundled `server/index.js` so that the running server can read it from disk.
 
 ## Admin endpoints
@@ -120,6 +122,32 @@ The server trims whitespace and removes duplicate codes before saving. The chang
 - `candidateCodes` must be an array of non-empty strings.
 
 Invalid input → `400 { "error": "..." }`. The endpoints have no auth and bind to localhost only; they are intended for local dev use.
+
+### Per-code stats for a domain
+
+```bash
+curl 'http://localhost:4123/admin/coupon-stats?domain=salvare-woo-test.local'
+```
+
+```json
+{
+  "domain": "salvare-woo-test.local",
+  "codes": [
+    {
+      "code": "TAKE20",
+      "rank": 1,
+      "successCount": 4,
+      "failureCount": 1,
+      "averageSavingsCents": 2000,
+      "lastSuccessAt": "2026-05-02T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+Codes are returned in the same ranked order as `GET /coupons?domain=…`. History for codes that are no longer in the seed/admin candidate list is excluded. `averageSavingsCents` and `lastSuccessAt` are `null` when the code has no successful results.
+
+Missing or empty `domain` query parameter → `400 { "error": "missing domain" }`.
 
 ### Delete a domain
 

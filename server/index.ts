@@ -18,6 +18,7 @@ import {
 } from "./results";
 import { buildCorsHeaders } from "./cors";
 import { rankCandidateCodes } from "./ranking";
+import { buildCouponStats } from "./stats";
 
 const DEFAULT_PORT = 4123;
 const port = Number(process.env.PORT ?? DEFAULT_PORT);
@@ -83,6 +84,21 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     res.statusCode = 200;
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.end(html);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/admin/coupon-stats") {
+    const validation = validateDomainParam(url.searchParams.get("domain"));
+    if (!validation.ok) {
+      sendJson(res, 400, { error: validation.error });
+      return;
+    }
+    const codes = getSeedData()[validation.domain] ?? [];
+    const history = getResultsForDomain(validation.domain);
+    sendJson(res, 200, {
+      domain: validation.domain,
+      codes: buildCouponStats(codes, history),
+    });
     return;
   }
 

@@ -6,7 +6,7 @@
     <style>
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
-        max-width: 640px;
+        max-width: 720px;
         margin: 32px auto;
         padding: 0 16px;
         color: #222;
@@ -21,20 +21,43 @@
       table {
         width: 100%;
         border-collapse: collapse;
-        margin: 16px 0 24px;
+        margin: 8px 0 0;
       }
       th,
       td {
         text-align: left;
-        padding: 8px 10px;
+        padding: 6px 10px;
         border-bottom: 1px solid #e2e2e2;
         vertical-align: top;
+        font-size: 13px;
       }
       th {
         background: #f6f6f6;
-        font-size: 13px;
         text-transform: uppercase;
         letter-spacing: 0.04em;
+        font-size: 12px;
+      }
+      .domain-section {
+        border: 1px solid #e2e2e2;
+        border-radius: 8px;
+        padding: 12px 16px 16px;
+        margin-bottom: 16px;
+      }
+      .domain-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .domain-name {
+        font-weight: 600;
+        font-size: 15px;
+      }
+      .domain-empty {
+        font-style: italic;
+        color: #777;
+        margin: 4px 0 0;
+        font-size: 13px;
       }
       form {
         display: grid;
@@ -99,16 +122,7 @@
     </p>
 
     <h2>Seeded coupons</h2>
-    <table id="coupons-table">
-      <thead>
-        <tr>
-          <th>Domain</th>
-          <th>Candidate codes</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+    <div id="domains"></div>
 
     <h2>Add or update</h2>
     <form id="admin-form">
@@ -124,8 +138,9 @@
 
     <footer>
       Backed by <code>GET /admin/coupons</code>,
-      <code>POST /admin/coupons</code>, and
-      <code>DELETE /admin/coupons</code>. No auth.
+      <code>POST /admin/coupons</code>,
+      <code>DELETE /admin/coupons</code>, and
+      <code>GET /admin/coupon-stats</code>. No auth.
     </footer>
 
     <script>
@@ -140,7 +155,7 @@
           });
       }
 
-      var tableBody = document.querySelector("#coupons-table tbody");
+      var domainsEl = document.getElementById("domains");
       var form = document.getElementById("admin-form");
       var domainInput = document.getElementById("domain-input");
       var codesInput = document.getElementById("codes-input");
@@ -151,39 +166,148 @@
         statusEl.className = kind || "";
       }
 
-      function renderCoupons(coupons) {
-        tableBody.innerHTML = "";
+      function formatLastSuccess(value) {
+        if (!value) return "—";
+        return value;
+      }
+
+      function formatAverage(cents) {
+        if (cents === null || cents === undefined) return "—";
+        return String(cents);
+      }
+
+      function renderStatsTable(codes) {
+        var table = document.createElement("table");
+        var thead = document.createElement("thead");
+        thead.innerHTML =
+          "<tr><th>Rank</th><th>Code</th><th>✓</th><th>✗</th>" +
+          "<th>Avg savings (cents)</th><th>Last success</th></tr>";
+        table.appendChild(thead);
+        var tbody = document.createElement("tbody");
+        codes.forEach(function (entry) {
+          var row = document.createElement("tr");
+          var rankCell = document.createElement("td");
+          rankCell.textContent = String(entry.rank);
+          var codeCell = document.createElement("td");
+          codeCell.textContent = entry.code;
+          var sCell = document.createElement("td");
+          sCell.textContent = String(entry.successCount);
+          var fCell = document.createElement("td");
+          fCell.textContent = String(entry.failureCount);
+          var avgCell = document.createElement("td");
+          avgCell.textContent = formatAverage(entry.averageSavingsCents);
+          var lastCell = document.createElement("td");
+          lastCell.textContent = formatLastSuccess(entry.lastSuccessAt);
+          row.appendChild(rankCell);
+          row.appendChild(codeCell);
+          row.appendChild(sCell);
+          row.appendChild(fCell);
+          row.appendChild(avgCell);
+          row.appendChild(lastCell);
+          tbody.appendChild(row);
+        });
+        table.appendChild(tbody);
+        return table;
+      }
+
+      function renderUnavailable(message) {
+        var p = document.createElement("p");
+        p.className = "domain-empty";
+        p.textContent = message;
+        return p;
+      }
+
+      function renderDomainSection(domain, statsResult) {
+        var section = document.createElement("section");
+        section.className = "domain-section";
+
+        var header = document.createElement("div");
+        header.className = "domain-header";
+        var name = document.createElement("span");
+        name.className = "domain-name";
+        name.textContent = domain;
+        var deleteBtn = document.createElement("button");
+        deleteBtn.type = "button";
+        deleteBtn.className = "delete-btn";
+        deleteBtn.textContent = "Delete";
+        deleteBtn.setAttribute("data-domain", domain);
+        header.appendChild(name);
+        header.appendChild(deleteBtn);
+        section.appendChild(header);
+
+        if (statsResult.ok && statsResult.codes && statsResult.codes.length > 0) {
+          section.appendChild(renderStatsTable(statsResult.codes));
+        } else if (statsResult.ok) {
+          section.appendChild(renderUnavailable("No candidate codes."));
+        } else {
+          section.appendChild(renderUnavailable("Stats unavailable."));
+        }
+
+        return section;
+      }
+
+      function fetchStats(domain) {
+        return fetch(
+          "/admin/coupon-stats?domain=" + encodeURIComponent(domain),
+        )
+          .then(function (r) {
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            return r.json();
+          })
+          .then(function (data) {
+            return { ok: true, codes: data.codes || [] };
+          })
+          .catch(function (err) {
+            console.warn("Salvare admin stats fetch failed", domain, err);
+            return { ok: false };
+          });
+      }
+
+      function renderDomains(coupons, statsByDomain) {
+        domainsEl.innerHTML = "";
         var domains = Object.keys(coupons).sort();
         if (domains.length === 0) {
-          var emptyRow = document.createElement("tr");
-          var emptyCell = document.createElement("td");
-          emptyCell.colSpan = 3;
-          emptyCell.textContent = "No domains seeded yet.";
-          emptyRow.appendChild(emptyCell);
-          tableBody.appendChild(emptyRow);
+          var empty = document.createElement("p");
+          empty.className = "domain-empty";
+          empty.textContent = "No domains seeded yet.";
+          domainsEl.appendChild(empty);
           return;
         }
         domains.forEach(function (domain) {
-          var row = document.createElement("tr");
-          var domainCell = document.createElement("td");
-          domainCell.textContent = domain;
-          var codesCell = document.createElement("td");
-          codesCell.textContent = (coupons[domain] || []).join(", ");
-          var actionCell = document.createElement("td");
-          var deleteBtn = document.createElement("button");
-          deleteBtn.type = "button";
-          deleteBtn.className = "delete-btn";
-          deleteBtn.textContent = "Delete";
-          deleteBtn.setAttribute("data-domain", domain);
-          actionCell.appendChild(deleteBtn);
-          row.appendChild(domainCell);
-          row.appendChild(codesCell);
-          row.appendChild(actionCell);
-          tableBody.appendChild(row);
+          var statsResult = statsByDomain[domain] || { ok: false };
+          domainsEl.appendChild(renderDomainSection(domain, statsResult));
         });
       }
 
-      tableBody.addEventListener("click", function (event) {
+      function loadCoupons() {
+        return fetch("/admin/coupons")
+          .then(function (r) {
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            return r.json();
+          })
+          .then(function (data) {
+            var coupons = data.coupons || {};
+            var domains = Object.keys(coupons);
+            return Promise.all(
+              domains.map(function (d) {
+                return fetchStats(d).then(function (statsResult) {
+                  return { domain: d, statsResult: statsResult };
+                });
+              }),
+            ).then(function (entries) {
+              var statsByDomain = {};
+              entries.forEach(function (entry) {
+                statsByDomain[entry.domain] = entry.statsResult;
+              });
+              renderDomains(coupons, statsByDomain);
+            });
+          })
+          .catch(function (err) {
+            setStatus("Failed to load coupons: " + err.message, "error");
+          });
+      }
+
+      domainsEl.addEventListener("click", function (event) {
         var target = event.target;
         if (!target || !target.classList || !target.classList.contains("delete-btn")) {
           return;
@@ -216,20 +340,6 @@
             setStatus("Delete failed: " + err.message, "error");
           });
       });
-
-      function loadCoupons() {
-        return fetch("/admin/coupons")
-          .then(function (r) {
-            if (!r.ok) throw new Error("HTTP " + r.status);
-            return r.json();
-          })
-          .then(function (data) {
-            renderCoupons(data.coupons || {});
-          })
-          .catch(function (err) {
-            setStatus("Failed to load coupons: " + err.message, "error");
-          });
-      }
 
       form.addEventListener("submit", function (event) {
         event.preventDefault();

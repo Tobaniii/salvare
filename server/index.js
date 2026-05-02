@@ -331,6 +331,45 @@ function rankCandidateCodes(codes, history) {
   return ranked.map((r) => r.code);
 }
 
+// server/stats.ts
+function buildCouponStats(codes, history) {
+  const codeSet = new Set(codes);
+  const successes = /* @__PURE__ */ new Map();
+  const failures = /* @__PURE__ */ new Map();
+  for (const code of codes) {
+    successes.set(code, []);
+    failures.set(code, []);
+  }
+  for (const record of history) {
+    if (!codeSet.has(record.code)) continue;
+    if (record.success) {
+      successes.get(record.code).push(record);
+    } else {
+      failures.get(record.code).push(record);
+    }
+  }
+  const ranked = rankCandidateCodes(codes, history);
+  return ranked.map((code, index) => {
+    const codeSuccesses = successes.get(code) ?? [];
+    const codeFailures = failures.get(code) ?? [];
+    let averageSavingsCents = null;
+    let lastSuccessAt = null;
+    if (codeSuccesses.length > 0) {
+      const total = codeSuccesses.reduce((sum, r) => sum + r.savingsCents, 0);
+      averageSavingsCents = Math.round(total / codeSuccesses.length);
+      lastSuccessAt = codeSuccesses.map((r) => r.testedAt).reduce((latest, t) => t > latest ? t : latest, "");
+    }
+    return {
+      code,
+      rank: index + 1,
+      successCount: codeSuccesses.length,
+      failureCount: codeFailures.length,
+      averageSavingsCents,
+      lastSuccessAt
+    };
+  });
+}
+
 // server/index.ts
 var DEFAULT_PORT = 4123;
 var port = Number(process.env.PORT ?? DEFAULT_PORT);
@@ -388,6 +427,20 @@ async function handleRequest(req, res) {
     res.statusCode = 200;
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.end(html);
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/admin/coupon-stats") {
+    const validation = validateDomainParam(url.searchParams.get("domain"));
+    if (!validation.ok) {
+      sendJson(res, 400, { error: validation.error });
+      return;
+    }
+    const codes = getSeedData()[validation.domain] ?? [];
+    const history = getResultsForDomain(validation.domain);
+    sendJson(res, 200, {
+      domain: validation.domain,
+      codes: buildCouponStats(codes, history)
+    });
     return;
   }
   if (req.method === "GET" && url.pathname === "/admin/coupons") {

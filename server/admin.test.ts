@@ -25,6 +25,6 @@ describe("getAdminHtml", () => {
     const html = getAdminHtml();
     expect(html.length).toBeGreaterThan(0);
     expect(html).toContain('id="admin-form"');
-    expect(html).toContain('id="coupons-table"');
+    expect(html).toContain('id="domains"');
   });
 });
