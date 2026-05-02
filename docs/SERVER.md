@@ -64,6 +64,18 @@ curl 'http://localhost:4123/coupons?domain=example.com'
 
 These match the candidate codes the v0.1.0 extension already tests via its mock provider. The seed lives in [`server/coupons.seed.json`](../server/coupons.seed.json); add or edit domains there without touching TypeScript. esbuild inlines the JSON during `npm run build:server`, so re-run that script (and restart the server) to pick up edits. The seed is duplicated from `extension/storeProfiles.ts` on purpose; a later milestone will collapse the two sources once the extension is wired to the backend.
 
+## Admin page
+
+A minimal local admin UI is served at:
+
+```
+http://localhost:4123/admin
+```
+
+The page lists every seeded domain and includes a small form to add or update a domain. Enter the domain, type the candidate codes comma-separated (e.g. `WELCOME10, SAVE15`), and click **Save**. The list refreshes after the server confirms the change. Local development only — there is no auth, and the page is served from `localhost`.
+
+The page is `server/admin.html`, served as-is; it sits next to the bundled `server/index.js` so that the running server can read it from disk.
+
 ## Admin endpoints
 
 Local-only endpoints for inspecting and updating the seeded coupon map at runtime. Useful in dev so you don't have to edit `server/coupons.seed.json` and rebuild the bundle to test new domains.

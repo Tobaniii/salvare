@@ -6,6 +6,7 @@ import {
   upsertCoupons,
   validateAdminBody,
 } from "./coupons";
+import { getAdminHtml } from "./admin";
 
 const DEFAULT_PORT = 4123;
 const port = Number(process.env.PORT ?? DEFAULT_PORT);
@@ -41,6 +42,18 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       return;
     }
     sendJson(res, 200, buildCouponResponse(domain));
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/admin") {
+    const html = getAdminHtml();
+    if (!html) {
+      sendJson(res, 404, { error: "admin page not found" });
+      return;
+    }
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.end(html);
     return;
   }
 

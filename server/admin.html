@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Salvare admin</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+        max-width: 640px;
+        margin: 32px auto;
+        padding: 0 16px;
+        color: #222;
+      }
+      h1 {
+        margin-bottom: 4px;
+      }
+      p.lead {
+        color: #555;
+        margin-top: 0;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 16px 0 24px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 8px 10px;
+        border-bottom: 1px solid #e2e2e2;
+        vertical-align: top;
+      }
+      th {
+        background: #f6f6f6;
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      form {
+        display: grid;
+        gap: 8px;
+        margin-top: 16px;
+      }
+      label {
+        font-size: 13px;
+        color: #444;
+      }
+      input[type="text"] {
+        padding: 8px 10px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        font-size: 14px;
+      }
+      button {
+        padding: 8px 14px;
+        border: none;
+        border-radius: 6px;
+        background: #1f6feb;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+        justify-self: start;
+      }
+      button:hover {
+        background: #1958c4;
+      }
+      #status {
+        font-size: 13px;
+        min-height: 18px;
+        margin-top: 8px;
+      }
+      #status.error {
+        color: #b91c1c;
+      }
+      #status.ok {
+        color: #166534;
+      }
+      footer {
+        margin-top: 32px;
+        font-size: 12px;
+        color: #777;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Salvare admin</h1>
+    <p class="lead">
+      Manage seeded coupon candidates served by the local backend at
+      <code>localhost:4123</code>. Local development only.
+    </p>
+
+    <h2>Seeded coupons</h2>
+    <table id="coupons-table">
+      <thead>
+        <tr>
+          <th>Domain</th>
+          <th>Candidate codes</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <h2>Add or update</h2>
+    <form id="admin-form">
+      <label for="domain-input">Domain</label>
+      <input id="domain-input" type="text" placeholder="example.com" required />
+
+      <label for="codes-input">Candidate codes (comma-separated)</label>
+      <input id="codes-input" type="text" placeholder="WELCOME10, SAVE15" required />
+
+      <button type="submit">Save</button>
+    </form>
+    <div id="status"></div>
+
+    <footer>
+      Backed by <code>GET /admin/coupons</code> and
+      <code>POST /admin/coupons</code>. No auth.
+    </footer>
+
+    <script>
+      function parseCommaSeparatedCodes(input) {
+        return input
+          .split(",")
+          .map(function (c) {
+            return c.trim();
+          })
+          .filter(function (c) {
+            return c.length > 0;
+          });
+      }
+
+      var tableBody = document.querySelector("#coupons-table tbody");
+      var form = document.getElementById("admin-form");
+      var domainInput = document.getElementById("domain-input");
+      var codesInput = document.getElementById("codes-input");
+      var statusEl = document.getElementById("status");
+
+      function setStatus(message, kind) {
+        statusEl.textContent = message;
+        statusEl.className = kind || "";
+      }
+
+      function renderCoupons(coupons) {
+        tableBody.innerHTML = "";
+        var domains = Object.keys(coupons).sort();
+        if (domains.length === 0) {
+          var emptyRow = document.createElement("tr");
+          var emptyCell = document.createElement("td");
+          emptyCell.colSpan = 2;
+          emptyCell.textContent = "No domains seeded yet.";
+          emptyRow.appendChild(emptyCell);
+          tableBody.appendChild(emptyRow);
+          return;
+        }
+        domains.forEach(function (domain) {
+          var row = document.createElement("tr");
+          var domainCell = document.createElement("td");
+          domainCell.textContent = domain;
+          var codesCell = document.createElement("td");
+          codesCell.textContent = (coupons[domain] || []).join(", ");
+          row.appendChild(domainCell);
+          row.appendChild(codesCell);
+          tableBody.appendChild(row);
+        });
+      }
+
+      function loadCoupons() {
+        return fetch("/admin/coupons")
+          .then(function (r) {
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            return r.json();
+          })
+          .then(function (data) {
+            renderCoupons(data.coupons || {});
+          })
+          .catch(function (err) {
+            setStatus("Failed to load coupons: " + err.message, "error");
+          });
+      }
+
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        setStatus("");
+
+        var domain = domainInput.value.trim();
+        var candidateCodes = parseCommaSeparatedCodes(codesInput.value);
+
+        if (!domain) {
+          setStatus("Domain is required.", "error");
+          return;
+        }
+        if (candidateCodes.length === 0) {
+          setStatus("Enter at least one candidate code.", "error");
+          return;
+        }
+
+        fetch("/admin/coupons", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ domain: domain, candidateCodes: candidateCodes }),
+        })
+          .then(function (r) {
+            return r.json().then(function (body) {
+              return { ok: r.ok, body: body };
+            });
+          })
+          .then(function (result) {
+            if (!result.ok) {
+              setStatus(
+                "Save failed: " + (result.body.error || "unknown error"),
+                "error",
+              );
+              return;
+            }
+            setStatus("Saved " + result.body.domain + ".", "ok");
+            domainInput.value = "";
+            codesInput.value = "";
+            return loadCoupons();
+          })
+          .catch(function (err) {
+            setStatus("Save failed: " + err.message, "error");
+          });
+      });
+
+      loadCoupons();
+    </script>
+  </body>
+</html>

@@ -8,9 +8,25 @@ import { fileURLToPath } from "node:url";
 
 // server/coupons.seed.json
 var coupons_seed_default = {
-  localhost: ["SAVE10", "TAKE15", "FREESHIP"],
-  "salvare-test-store.myshopify.com": ["WELCOME10", "SAVE15", "FREESHIP"],
-  "salvare-woo-test.local": ["WELCOME10", "TAKE20", "FREESHIP"]
+  localhost: [
+    "SAVE10",
+    "TAKE15",
+    "FREESHIP"
+  ],
+  "salvare-test-store.myshopify.com": [
+    "WELCOME10",
+    "SAVE15",
+    "FREESHIP"
+  ],
+  "salvare-woo-test.local": [
+    "WELCOME10",
+    "TAKE20",
+    "FREESHIP"
+  ],
+  "example-store.com": [
+    "WELCOME10",
+    "SAVE15"
+  ]
 };
 
 // server/coupons.ts
@@ -98,6 +114,25 @@ function upsertCoupons(domain, codes) {
   return { domain, candidateCodes: normalized };
 }
 
+// server/admin.ts
+import { readFileSync as readFileSync2 } from "node:fs";
+import { dirname as dirname2, join as join2 } from "node:path";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
+var ADMIN_HTML_PATH = join2(
+  dirname2(fileURLToPath2(import.meta.url)),
+  "admin.html"
+);
+var cachedHtml = null;
+function getAdminHtml() {
+  if (cachedHtml !== null) return cachedHtml;
+  try {
+    cachedHtml = readFileSync2(ADMIN_HTML_PATH, "utf8");
+  } catch {
+    cachedHtml = "";
+  }
+  return cachedHtml;
+}
+
 // server/index.ts
 var DEFAULT_PORT = 4123;
 var port = Number(process.env.PORT ?? DEFAULT_PORT);
@@ -128,6 +163,17 @@ async function handleRequest(req, res) {
       return;
     }
     sendJson(res, 200, buildCouponResponse(domain));
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/admin") {
+    const html = getAdminHtml();
+    if (!html) {
+      sendJson(res, 404, { error: "admin page not found" });
+      return;
+    }
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.end(html);
     return;
   }
   if (req.method === "GET" && url.pathname === "/admin/coupons") {
