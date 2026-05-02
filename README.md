@@ -28,12 +28,25 @@ Salvare is a React + TypeScript app and a companion Chrome extension that finds 
 - Search-form guard so apply attempts cannot click site-search submit buttons or submit search forms.
 - Total detection with a blacklist filter so discount, savings, and subtotal rows are not mistaken for the order total.
 - Baseline comparison: a code is only counted as successful if it strictly lowers the original total. The popup reports the best code, the final total, and the savings.
+- Reports each tested coupon outcome to the local backend (best-effort, fire-and-forget).
 
 ## Supported and tested environments
 
 - Local React checkout (the included Vite app).
 - Shopify development checkout via a `*.myshopify.com` profile.
 - WooCommerce checkout running on a LocalWP site (`salvare-woo-test.local` profile).
+
+## Local development backend
+
+A small prototype backend lives in `server/` and runs on `http://localhost:4123`. It is local-only — no hosted API, no scraping, no third-party calls.
+
+- Candidate-code provider: `couponProvider.ts` calls `GET /coupons?domain=…` first and falls back to mock/profile candidate codes when the backend is unreachable, slow, or returns an unexpected shape.
+- Admin page: open `http://localhost:4123/admin` to view, add, update, or delete seeded domains. Backed by `GET/POST/DELETE /admin/coupons`.
+- Result history: the extension fires a best-effort `POST /results` after each tested coupon. `GET /results?domain=…` returns the recorded outcomes.
+- Seed data is editable in [`server/coupons.seed.json`](server/coupons.seed.json); result history persists to [`server/coupon-results.json`](server/coupon-results.json).
+- No auth. The endpoints are intended for local development only.
+
+See [`docs/SERVER.md`](docs/SERVER.md), [`docs/SEED_DATA.md`](docs/SEED_DATA.md), and [`docs/API_DESIGN.md`](docs/API_DESIGN.md) for details.
 
 ## Run the React app
 
@@ -73,10 +86,10 @@ Then in Chrome:
 
 ## Backend/API readiness
 
-Salvare currently uses mock candidate codes drawn from the store profiles in `extension/storeProfiles.ts`. The async functions `fetchCandidateCodes(domain)` and `fetchCandidateCodeResult(domain)` are the seam where a real backend coupon API can be connected later. No external coupon discovery, scraping, or third-party API calls are implemented yet.
+A local development backend prototype lives in `server/`. The extension's `couponProvider.ts` calls `http://localhost:4123/coupons` first and falls back to mock candidate codes when the backend is unreachable, slow, or returns an unexpected shape. Everything is local — there is no hosted API, no scraping, and no third-party calls.
 
 ## Current limitations
 
-- Candidate coupon codes are hardcoded per store profile in `extension/storeProfiles.ts`.
-- There is no backend or API for coupon discovery; the extension only tests the codes the profile already knows about.
+- Candidate coupon codes are seeded by hand in [`server/coupons.seed.json`](server/coupons.seed.json) and `extension/storeProfiles.ts`. The backend is local-only and there is no hosted coupon API or automated coupon discovery.
 - Store support depends on the selectors and keyword heuristics in the profile and content script. A new merchant generally needs a new profile entry, and possibly tuned selectors, before testing works reliably.
+- Result reporting and admin endpoints have no auth; they are intended for local development only.

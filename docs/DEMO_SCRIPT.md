@@ -24,13 +24,14 @@
 
 - The popup sends a message to the content script running on the active tab.
 - The content script resolves a store profile by hostname to pick the right selectors and behavior.
-- Candidate codes come from a mock coupon provider that the extension treats as a backend seam.
+- Candidate codes come from the local backend at `localhost:4123` when running, or from a mock provider as a fallback.
 - The extension applies each code, waits for the checkout to update, compares totals against the baseline, and reapplies the winner.
+- After each tested code, the extension fires a best-effort `POST` to the backend's result history endpoint.
 
 ## 5. Limitations
 
-- Candidate codes are still mock/profile-based.
-- There is no backend coupon discovery yet.
+- Candidate codes are still seed-driven; the backend is a local prototype only.
+- There is no hosted API and no automated coupon discovery.
 - Store support depends on the selectors and keyword heuristics in each profile.
 
 ## 6. Closing line
