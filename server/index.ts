@@ -16,6 +16,7 @@ import {
   validateResultBody,
 } from "./results";
 import { buildCorsHeaders } from "./cors";
+import { rankCandidateCodes } from "./ranking";
 
 const DEFAULT_PORT = 4123;
 const port = Number(process.env.PORT ?? DEFAULT_PORT);
@@ -63,7 +64,12 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       sendJson(res, 400, { error: "missing domain" });
       return;
     }
-    sendJson(res, 200, buildCouponResponse(domain));
+    const response = buildCouponResponse(domain);
+    const ranked = rankCandidateCodes(
+      response.candidateCodes,
+      getResultsForDomain(domain),
+    );
+    sendJson(res, 200, { ...response, candidateCodes: ranked });
     return;
   }
 

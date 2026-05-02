@@ -27,6 +27,8 @@ GET /coupons?domain=example.com
 
 The `source` and `updatedAt` fields map directly onto the existing `CandidateCodeResult.source` and `CandidateCodeResult.fetchedAt` fields, so swapping the provider should not require reshaping data on the client.
 
+When local result history exists for the requested domain, the local backend orders `candidateCodes` by historical performance: codes with at least one successful test first (highest average `savingsCents`, with most recent success as a tiebreaker), then codes with no history in their original seed order, then failure-only codes last. Result history only changes the order — codes are never added or removed by ranking.
+
 ## 4. Error / empty response
 
 Unsupported domain — `200 OK`, uniform shape, empty `candidateCodes`:

@@ -39,6 +39,22 @@
       "savingsCents": 0,
       "finalTotalCents": 17500,
       "testedAt": "2026-05-02T03:49:14.132Z"
+    },
+    {
+      "domain": "salvare-woo-test.local",
+      "code": "WELCOME10",
+      "success": true,
+      "savingsCents": 100,
+      "finalTotalCents": 17400,
+      "testedAt": "2026-05-02T07:05:04.710Z"
+    },
+    {
+      "domain": "salvare-woo-test.local",
+      "code": "TAKE20",
+      "success": true,
+      "savingsCents": 2000,
+      "finalTotalCents": 15500,
+      "testedAt": "2026-05-02T07:05:04.726Z"
     }
   ]
 }

@@ -256,6 +256,71 @@ function buildCorsHeaders(origin) {
   };
 }
 
+// server/ranking.ts
+var BUCKET_ORDER = {
+  success: 0,
+  none: 1,
+  failure: 2
+};
+function rankCandidateCodes(codes, history) {
+  const stats = /* @__PURE__ */ new Map();
+  for (const code of codes) {
+    stats.set(code, { successes: [], failures: [] });
+  }
+  for (const record of history) {
+    const entry = stats.get(record.code);
+    if (!entry) continue;
+    if (record.success) entry.successes.push(record);
+    else entry.failures.push(record);
+  }
+  const ranked = codes.map((code, seedIndex) => {
+    const entry = stats.get(code);
+    if (entry.successes.length > 0) {
+      const total = entry.successes.reduce((sum, r) => sum + r.savingsCents, 0);
+      const averageSavings = total / entry.successes.length;
+      const mostRecentSuccessAt = entry.successes.map((r) => r.testedAt).reduce((latest, t) => t > latest ? t : latest, "");
+      return {
+        code,
+        seedIndex,
+        bucket: "success",
+        averageSavings,
+        mostRecentSuccessAt
+      };
+    }
+    if (entry.failures.length > 0) {
+      return {
+        code,
+        seedIndex,
+        bucket: "failure",
+        averageSavings: 0,
+        mostRecentSuccessAt: ""
+      };
+    }
+    return {
+      code,
+      seedIndex,
+      bucket: "none",
+      averageSavings: 0,
+      mostRecentSuccessAt: ""
+    };
+  });
+  ranked.sort((a, b) => {
+    if (BUCKET_ORDER[a.bucket] !== BUCKET_ORDER[b.bucket]) {
+      return BUCKET_ORDER[a.bucket] - BUCKET_ORDER[b.bucket];
+    }
+    if (a.bucket === "success") {
+      if (a.averageSavings !== b.averageSavings) {
+        return b.averageSavings - a.averageSavings;
+      }
+      if (a.mostRecentSuccessAt !== b.mostRecentSuccessAt) {
+        return b.mostRecentSuccessAt.localeCompare(a.mostRecentSuccessAt);
+      }
+    }
+    return a.seedIndex - b.seedIndex;
+  });
+  return ranked.map((r) => r.code);
+}
+
 // server/index.ts
 var DEFAULT_PORT = 4123;
 var port = Number(process.env.PORT ?? DEFAULT_PORT);
@@ -296,7 +361,12 @@ async function handleRequest(req, res) {
       sendJson(res, 400, { error: "missing domain" });
       return;
     }
-    sendJson(res, 200, buildCouponResponse(domain));
+    const response = buildCouponResponse(domain);
+    const ranked = rankCandidateCodes(
+      response.candidateCodes,
+      getResultsForDomain(domain)
+    );
+    sendJson(res, 200, { ...response, candidateCodes: ranked });
     return;
   }
   if (req.method === "GET" && url.pathname === "/admin") {
