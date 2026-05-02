@@ -22,5 +22,9 @@
     "PRELUV10",
     "NICHE",
     "WELCOME15"
+  ],
+  "sqlite-test.com": [
+    "SAVE10",
+    "SAVE20"
   ]
 }

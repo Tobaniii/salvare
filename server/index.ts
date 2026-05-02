@@ -1,10 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import {
   buildCouponResponse,
-  deleteCoupons,
-  getSeedData,
-  loadSeedFromDisk,
-  upsertCoupons,
   validateAdminBody,
   validateDomainParam,
 } from "./coupons";
@@ -19,9 +15,26 @@ import {
 import { buildCorsHeaders } from "./cors";
 import { rankCandidateCodes } from "./ranking";
 import { buildCouponStats } from "./stats";
+import { defaultDatabasePath, openDatabase, type Db } from "./db";
+import {
+  bootstrapIfEmpty,
+  deleteCouponDomain,
+  getAllSeedData,
+  getCandidateCodesForDomain,
+  upsertCouponCodes,
+} from "./db-coupons";
 
 const DEFAULT_PORT = 4123;
 const port = Number(process.env.PORT ?? DEFAULT_PORT);
+
+const db: Db = openDatabase(defaultDatabasePath());
+const bootstrapStats = bootstrapIfEmpty(db);
+if (bootstrapStats.bootstrapped) {
+  console.log(
+    `Salvare bootstrap on startup: imported ${bootstrapStats.storesImported} store(s) and ${bootstrapStats.codesImported} code(s) from coupons.seed.json`,
+  );
+}
+loadResultsFromDisk();
 
 function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
@@ -66,7 +79,8 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       sendJson(res, 400, { error: "missing domain" });
       return;
     }
-    const response = buildCouponResponse(domain);
+    const codes = getCandidateCodesForDomain(db, domain);
+    const response = buildCouponResponse(domain, codes);
     const ranked = rankCandidateCodes(
       response.candidateCodes,
       getResultsForDomain(domain),
@@ -93,7 +107,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       sendJson(res, 400, { error: validation.error });
       return;
     }
-    const codes = getSeedData()[validation.domain] ?? [];
+    const codes = getCandidateCodesForDomain(db, validation.domain);
     const history = getResultsForDomain(validation.domain);
     sendJson(res, 200, {
       domain: validation.domain,
@@ -104,7 +118,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
 
   if (req.method === "GET" && url.pathname === "/admin/coupons") {
     sendJson(res, 200, {
-      coupons: getSeedData(),
+      coupons: getAllSeedData(db),
       updatedAt: new Date().toISOString(),
     });
     return;
@@ -116,7 +130,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       sendJson(res, 400, { error: validation.error });
       return;
     }
-    const result = deleteCoupons(validation.domain);
+    const result = deleteCouponDomain(db, validation.domain);
     if (!result.deleted) {
       sendJson(res, 404, {
         error: "domain not seeded",
@@ -202,16 +216,17 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       return;
     }
 
-    const result = upsertCoupons(validation.domain, validation.candidateCodes);
+    const result = upsertCouponCodes(
+      db,
+      validation.domain,
+      validation.candidateCodes,
+    );
     sendJson(res, 200, result);
     return;
   }
 
   sendJson(res, 404, { error: "not found" });
 }
-
-loadSeedFromDisk();
-loadResultsFromDisk();
 
 const server = createServer((req, res) => {
   handleRequest(req, res).catch((err) => {

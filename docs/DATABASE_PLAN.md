@@ -108,6 +108,16 @@ Phase 1 has landed: the SQLite dependency and schema setup are in place. No rout
 
 Phase 2 will start using this connection from the existing route handlers.
 
+### Phase 3 — coupon data on SQLite
+
+Coupon seed/admin reads and writes now go through SQLite at runtime via `server/db-coupons.ts`. Result history remains JSON-backed in this milestone.
+
+- On startup, the server opens `server/salvare.db`, ensures the schema, and runs `bootstrapIfEmpty`. If the `stores` table is empty, the contents of `server/coupons.seed.json` are imported automatically. Subsequent restarts no-op.
+- Admin add/update/delete operations write to the database, so changes persist across server restarts (verified by `server/db-coupons.test.ts`'s file-backed reopen test).
+- For a fresh database — for example after deleting `server/salvare.db` — run `npm run db:bootstrap` to import both the seed JSON and the result history JSON, or just start the server (`npm run start:server`) and let `bootstrapIfEmpty` populate the seed automatically.
+- Result history endpoints (`POST/GET/DELETE /results`) still read and write `server/coupon-results.json` via `server/results.ts`. Phase 4 will move these to SQLite.
+- API response shapes are unchanged. The popup, content script, and admin UI continue to work identically.
+
 ### Phase 2 — JSON-to-SQLite bootstrap
 
 A bootstrap step lands ahead of the route swap so the database can be populated from existing JSON files.
