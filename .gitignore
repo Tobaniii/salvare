@@ -20,6 +20,11 @@ server/salvare.db-shm
 server/db-init.js
 server/db-bootstrap-cli.js
 
+# Playwright smoke tests
+playwright-report
+test-results
+.playwright
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -17,6 +17,36 @@ Override the port with the `PORT` env var if 4123 is in use:
 PORT=4200 npm run start:server
 ```
 
+## Smoke tests
+
+Browser-driven smoke tests live in [`smoke/`](../smoke/) and cover the local backend plus the admin page UI. They use Playwright and an isolated in-memory SQLite database per test — `server/salvare.db` is never opened or modified. The Chrome extension is **not** covered in this milestone.
+
+One-time setup (downloads the Chromium browser binary used by Playwright):
+
+```bash
+npx playwright install chromium
+```
+
+Run the smoke suite:
+
+```bash
+npm run test:smoke
+```
+
+Run unit tests + smoke together:
+
+```bash
+npm run test:all
+```
+
+What the smoke suite covers:
+
+- `smoke/admin.smoke.ts` — opens `GET /admin` in Chromium with no token configured, verifies seeded domains render, exercises the add/update/delete flows through the form and Delete button, and cross-checks `GET /coupons` after the UI changes.
+- `smoke/api.smoke.ts` — `GET /coupons`, `POST /results` (success + failure), then re-fetches `GET /coupons` and `GET /admin/coupon-stats` to verify ranking and stats reflect reported results.
+- `smoke/auth.smoke.ts` — boots the same server with `SALVARE_ADMIN_TOKEN` configured and verifies that browser navigation to `/admin` returns 401, protected admin endpoints reject without/accept with `Authorization: Bearer …`, and the unprotected endpoints (`GET /coupons`, `POST /results`) stay open.
+
+Each test starts its own server on `127.0.0.1` with an OS-assigned port via the `createSalvareServer` factory in [`server/index.ts`](../server/index.ts), so smoke runs do not collide with a developer's running `npm run start:server` and do not touch the developer's local database.
+
 ## Optional admin token
 
 By default the local server has no auth — fine for single-user local dev on `localhost`. To require a bearer token on admin and destructive endpoints, start the server with `SALVARE_ADMIN_TOKEN`:
