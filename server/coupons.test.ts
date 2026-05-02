@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildCouponResponse } from "./coupons";
+import seedData from "./coupons.seed.json";
 
 describe("buildCouponResponse", () => {
   it("returns seeded codes for localhost", () => {
@@ -36,5 +37,40 @@ describe("buildCouponResponse", () => {
     const result = buildCouponResponse("localhost");
     expect(typeof result.updatedAt).toBe("string");
     expect(result.updatedAt.length).toBeGreaterThan(0);
+  });
+});
+
+describe("coupons.seed.json validation", () => {
+  const seed = seedData as unknown;
+
+  it("is a non-null plain object", () => {
+    expect(typeof seed).toBe("object");
+    expect(seed).not.toBeNull();
+    expect(Array.isArray(seed)).toBe(false);
+  });
+
+  it("has only non-empty string domain keys", () => {
+    const keys = Object.keys(seed as Record<string, unknown>);
+    expect(keys.length).toBeGreaterThan(0);
+    for (const key of keys) {
+      expect(typeof key).toBe("string");
+      expect(key.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("maps each domain to an array", () => {
+    for (const value of Object.values(seed as Record<string, unknown>)) {
+      expect(Array.isArray(value)).toBe(true);
+    }
+  });
+
+  it("contains only non-empty string coupon codes", () => {
+    for (const value of Object.values(seed as Record<string, unknown>)) {
+      expect(Array.isArray(value)).toBe(true);
+      for (const code of value as unknown[]) {
+        expect(typeof code).toBe("string");
+        expect((code as string).length).toBeGreaterThan(0);
+      }
+    }
   });
 });
