@@ -9,7 +9,7 @@ import type { Db } from "./db";
 import { getDatabaseStatus } from "./diagnostics";
 
 // Single source of truth for the backend version. Bump on each milestone.
-export const SALVARE_VERSION = "0.9.0";
+export const SALVARE_VERSION = "0.10.0";
 
 export const SALVARE_SERVICE_NAME = "salvare-backend";
 

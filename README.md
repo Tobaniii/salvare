@@ -138,6 +138,8 @@ A local development backend lives in `server/`. The extension's `couponProvider.
 - **v0.7.1** — Backend and admin-page Playwright smoke tests with isolated in-memory databases.
 - **v0.7.2** — Admin UI prompts for and stores the admin token in `localStorage` so the page works in token mode.
 - **v0.8.0** — Chrome extension Playwright smoke tests covering the local React checkout flow (popup readiness → Find Best Coupon → result reporting). Shopify and WooCommerce profiles are still exercised manually.
+- **v0.9.0** — Startup configuration diagnostics and an unprotected `GET /health` readiness endpoint exposing coarse service/database/auth status.
+- **v0.10.0** — Admin page displays a backend status panel sourced from `GET /health` (service, version, schema/coupon/result presence, admin-token-configured flag).
 
 ## Current limitations
 

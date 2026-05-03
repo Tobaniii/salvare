@@ -65,7 +65,7 @@ curl http://localhost:4123/health
 {
   "ok": true,
   "service": "salvare-backend",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "database": {
     "schemaInitialized": true,
     "hasCoupons": true,
