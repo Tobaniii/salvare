@@ -248,6 +248,25 @@ npm run db:bootstrap
 
 Note: re-running `npm run db:bootstrap` against an already-populated database **adds** new domains/codes from the seed JSON via `INSERT OR IGNORE` (existing rows are not removed or rewritten) and **clears + reimports** the entire `coupon_results` table from the result-history JSON. If you want a true reset, delete the DB file first.
 
+### Local data maintenance (backup / export / reset)
+
+Three small CLIs handle backup, JSON export, and a one-shot reset of the configured runtime DB. They all honor `SALVARE_DB_PATH` and default to `server/salvare.db`. Stop the running backend before invoking these so SQLite isn't holding a write lock.
+
+```bash
+npm run db:backup     # copy server/salvare.db → server/backups/salvare-<UTC>.db
+npm run db:export     # dump current SQLite data → server/exports/{coupons,coupon-results}-<UTC>.json
+npm run db:reset      # wipe + recreate schema + bootstrap from JSON sources
+```
+
+Behavior and safety notes:
+
+- **`db:backup`** copies the configured DB to `server/backups/salvare-<UTC-stamp>.db`. The directory is created on demand. Existing backups with the same timestamp are **never overwritten** — the script aborts with a clear error instead. If the configured DB file does not exist (e.g. fresh checkout, before `db:init`), the script exits non-zero with a clear message — no empty backup is written.
+- **`db:export`** writes two files into `server/exports/`: a `coupons-<stamp>.json` grouped by domain (same shape as `server/coupons.seed.json`) and a `coupon-results-<stamp>.json` envelope (same `{ "results": [...] }` shape as `server/coupon-results.json`). The export only contains coupon and result data — it never includes the admin token, environment variables, the database path, or request headers. Existing files at the same timestamped name are not overwritten.
+- **`db:reset`** prints a warning to stderr, deletes the configured DB and its `-journal/-wal/-shm` sidecars, recreates the schema, and bootstraps from the JSON files in `server/`. It refuses to operate on any path that resolves to `smoke/salvare.db`. The committed JSON bootstrap files (`server/coupons.seed.json`, `server/coupon-results.json`) are read-only inputs — `db:reset` never modifies them.
+- `server/salvare.db` is local runtime data and is gitignored.
+- `server/backups/` and `server/exports/` are gitignored — runtime artifacts must not be committed.
+- The JSON seed/result files in `server/` remain the bootstrap sources of truth; `db:reset` reimports from them, and admin/runtime writes still land in SQLite, not the JSON files.
+
 ## Endpoint
 
 ```

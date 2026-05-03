@@ -19,7 +19,14 @@ server/salvare.db-wal
 server/salvare.db-shm
 server/db-init.js
 server/db-bootstrap-cli.js
+server/db-backup-cli.js
+server/db-export-cli.js
+server/db-reset-cli.js
 server/server.js
+
+# Local data maintenance artifacts — never commit
+server/backups/
+server/exports/
 
 # Playwright smoke tests
 playwright-report
