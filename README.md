@@ -45,7 +45,7 @@ A small Node + TypeScript backend lives in `server/` and runs on `http://localho
 - Result history: the extension fires a best-effort `POST /results` after each tested coupon. `GET /results?domain=…` returns the recorded outcomes.
 - Runtime persistence is SQLite at `server/salvare.db` (local, gitignored — do not commit). [`server/coupons.seed.json`](server/coupons.seed.json) and [`server/coupon-results.json`](server/coupon-results.json) are bootstrap-only sources used to populate a fresh database via `npm run db:bootstrap`. After bootstrap, admin edits and reported results live in SQLite.
 - Optional local hardening: setting `SALVARE_ADMIN_TOKEN` requires `Authorization: Bearer <token>` on admin and destructive endpoints. The admin page itself prompts for the token and stores it in `localStorage`. `GET /coupons`, `POST /results`, and `GET /results` stay open so the unmodified extension keeps working. This is local hardening, not production auth.
-- The endpoints are intended for local development only.
+- The endpoints are intended for local development only. See [`docs/SERVER.md`](docs/SERVER.md) for the supported environment variables (`PORT`, `SALVARE_DB_PATH`, `SALVARE_ADMIN_TOKEN`, `NODE_ENV`) and the startup-diagnostics block.
 
 See [`docs/SERVER.md`](docs/SERVER.md), [`docs/SEED_DATA.md`](docs/SEED_DATA.md), and [`docs/API_DESIGN.md`](docs/API_DESIGN.md) for details.
 

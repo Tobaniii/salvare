@@ -72,9 +72,19 @@ export default async function globalSetup(
 ): Promise<() => Promise<void>> {
   await ensurePortFree(SALVARE_PORT);
 
+  // Scrub Salvare-specific env vars so a developer's `SALVARE_DB_PATH` or
+  // `SALVARE_ADMIN_TOKEN` (or `PORT`) cannot leak into the harness subprocess.
+  // The harness builds its server in-process with explicit args; this is
+  // belt-and-braces in case its bootstrap ever starts reading env directly.
+  const childEnv = { ...process.env };
+  delete childEnv.SALVARE_DB_PATH;
+  delete childEnv.SALVARE_ADMIN_TOKEN;
+  delete childEnv.PORT;
+
   harness = spawn("node", [HARNESS_PATH], {
     stdio: ["ignore", "pipe", "pipe"],
     detached: false,
+    env: childEnv,
   });
   harness.stdout?.on("data", (chunk) =>
     process.stdout.write(`[salvare-harness] ${chunk}`),

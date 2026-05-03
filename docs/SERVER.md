@@ -19,6 +19,40 @@ Override the port with the `PORT` env var if 4123 is in use:
 PORT=4200 npm run start:server
 ```
 
+### Environment variables
+
+| Variable               | Default                | Effect                                                                                  |
+|------------------------|------------------------|-----------------------------------------------------------------------------------------|
+| `PORT`                 | `4123`                 | TCP port to bind. Must be a positive integer in `[1, 65535]`; invalid values exit 1.    |
+| `SALVARE_DB_PATH`      | `server/salvare.db`    | SQLite database path. Trimmed; empty/whitespace falls back to the default.              |
+| `SALVARE_ADMIN_TOKEN`  | (unset, auth disabled) | Required `Authorization: Bearer <token>` for admin/destructive endpoints when set.      |
+| `NODE_ENV`             | `development`          | Informational only; not currently used to gate behavior.                                |
+
+Failure modes:
+
+- Invalid `PORT` (e.g. `PORT=abc`) → `Salvare backend: invalid configuration — PORT must be a positive integer between 1 and 65535 (got 'abc')` and exit 1.
+- DB open error (e.g. unreadable path) → `Salvare backend: failed to open database at <path>: <reason>` and exit 1.
+- Port already in use at listen time → `Salvare backend: port <n> is already in use. Stop any other process on this port and retry.` and exit 1.
+
+The admin token value is **never** logged. The startup line only prints `Admin auth: ENABLED` or `Admin auth: DISABLED`.
+
+### Startup diagnostics
+
+On every start the server prints a concise human-readable block before listening:
+
+```
+Salvare backend starting...
+Port: 4123
+Database: server/salvare.db
+Schema: initialized
+Admin auth: DISABLED
+Coupon data: present
+Result history: present
+Listening: http://localhost:4123
+```
+
+If JSON bootstrap imported any rows on this start (typically the first run on a fresh DB), an extra line summarises the import counts, e.g. `Bootstrap: imported 3 store(s), 9 code(s), 7 result(s) from JSON.`. Token values, coupon codes, and result rows are not printed — only counts and presence flags.
+
 ## Smoke tests
 
 Browser-driven smoke tests live in [`smoke/`](../smoke/) and cover the local backend, the admin page UI, and the Chrome extension on the local React checkout. They use Playwright and isolated in-memory or temporary SQLite databases per test — `server/salvare.db` is never opened or modified. Any temporary on-disk DB used by smoke runs lives at `smoke/salvare.db` and is gitignored — do not commit it.
