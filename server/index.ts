@@ -26,6 +26,7 @@ import {
   deleteResultsForDomain,
   getResultsForDomain,
 } from "./db-results";
+import { buildExportPayloads } from "./db-maintenance";
 import { isAuthorized } from "./auth";
 import {
   buildHealthFailureResponse,
@@ -157,6 +158,32 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
         coupons: getAllSeedData(db),
         updatedAt: new Date().toISOString(),
       });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/admin/export/coupons") {
+      if (!requireAuth(req, res)) return;
+      const { coupons } = buildExportPayloads(db);
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader(
+        "Content-Disposition",
+        'attachment; filename="salvare-coupons-export.json"',
+      );
+      res.end(JSON.stringify(coupons));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/admin/export/results") {
+      if (!requireAuth(req, res)) return;
+      const { results } = buildExportPayloads(db);
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader(
+        "Content-Disposition",
+        'attachment; filename="salvare-results-export.json"',
+      );
+      res.end(JSON.stringify(results));
       return;
     }
 

@@ -26,6 +26,8 @@ test.describe("token-mode smoke", () => {
       );
       await expect(page.locator("#health-token")).toHaveText("yes");
       await expect(page.locator("#health-schema")).toHaveText("yes");
+      await expect(page.locator("#export-coupons-btn")).toBeVisible();
+      await expect(page.locator("#export-results-btn")).toBeVisible();
     });
 
     test("entering correct token loads seeded domains; clearing returns to banner", async ({
@@ -129,6 +131,42 @@ test.describe("token-mode smoke", () => {
       domain: "tok-add.com",
       candidateCodes: ["T1"],
     });
+  });
+
+  test("GET /admin/export/coupons rejects without Authorization, accepts with token", async ({
+    salvareWithToken,
+    request,
+  }) => {
+    const unauth = await request.get(
+      `${salvareWithToken.baseUrl}/admin/export/coupons`,
+    );
+    expect(unauth.status()).toBe(401);
+
+    const ok = await request.get(
+      `${salvareWithToken.baseUrl}/admin/export/coupons`,
+      { headers: { Authorization: `Bearer ${salvareWithToken.token}` } },
+    );
+    expect(ok.status()).toBe(200);
+    const body = await ok.json();
+    expect(body["smoke.test"]).toEqual(["A1", "A2"]);
+  });
+
+  test("GET /admin/export/results rejects without Authorization, accepts with token", async ({
+    salvareWithToken,
+    request,
+  }) => {
+    const unauth = await request.get(
+      `${salvareWithToken.baseUrl}/admin/export/results`,
+    );
+    expect(unauth.status()).toBe(401);
+
+    const ok = await request.get(
+      `${salvareWithToken.baseUrl}/admin/export/results`,
+      { headers: { Authorization: `Bearer ${salvareWithToken.token}` } },
+    );
+    expect(ok.status()).toBe(200);
+    const body = await ok.json();
+    expect(Array.isArray(body.results)).toBe(true);
   });
 
   test("GET /coupons stays open without Authorization", async ({

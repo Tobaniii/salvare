@@ -181,6 +181,40 @@
         color: #b91c1c;
         font-size: 13px;
       }
+      .export-bar {
+        border: 1px solid #e2e2e2;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 16px;
+        background: #fafafa;
+      }
+      .export-bar h2 {
+        margin: 0 0 8px;
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #555;
+      }
+      .export-bar .export-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .export-bar button {
+        margin: 0;
+      }
+      #export-status {
+        font-size: 13px;
+        min-height: 18px;
+        margin-top: 8px;
+        color: #555;
+      }
+      #export-status.error {
+        color: #b91c1c;
+      }
+      #export-status.ok {
+        color: #166534;
+      }
       #auth-banner {
         display: none;
         border: 1px solid #fca5a5;
@@ -247,6 +281,19 @@
       <div id="token-status"></div>
     </section>
 
+    <section class="export-bar" aria-label="Data export">
+      <h2>Data export</h2>
+      <div class="export-row">
+        <button id="export-coupons-btn" type="button">
+          Download coupons JSON
+        </button>
+        <button id="export-results-btn" type="button">
+          Download result history JSON
+        </button>
+      </div>
+      <div id="export-status"></div>
+    </section>
+
     <div id="auth-banner" role="alert">
       Admin token required or invalid. Paste a valid token above and click Save.
     </div>
@@ -269,8 +316,10 @@
     <footer>
       Backed by <code>GET /admin/coupons</code>,
       <code>POST /admin/coupons</code>,
-      <code>DELETE /admin/coupons</code>, and
-      <code>GET /admin/coupon-stats</code>. No auth.
+      <code>DELETE /admin/coupons</code>,
+      <code>GET /admin/coupon-stats</code>,
+      <code>GET /admin/export/coupons</code>, and
+      <code>GET /admin/export/results</code>.
     </footer>
 
     <script>
@@ -296,6 +345,9 @@
       var tokenStatusEl = document.getElementById("token-status");
       var authBanner = document.getElementById("auth-banner");
       var healthContentEl = document.getElementById("health-content");
+      var exportCouponsBtn = document.getElementById("export-coupons-btn");
+      var exportResultsBtn = document.getElementById("export-results-btn");
+      var exportStatusEl = document.getElementById("export-status");
 
       function yesNo(value) {
         return value ? "yes" : "no";
@@ -666,6 +718,60 @@
         setTokenStatus("Token cleared.");
         setStatus("");
         loadCoupons();
+      });
+
+      function setExportStatus(message, kind) {
+        exportStatusEl.textContent = message || "";
+        exportStatusEl.className = kind || "";
+      }
+
+      function downloadExport(path, filename) {
+        setExportStatus("Preparing download…");
+        fetch(path, { headers: authHeaders() })
+          .then(function (r) {
+            if (r.status === 401) {
+              setAuthBannerVisible(true);
+              setExportStatus("Download failed: unauthorized.", "error");
+              return null;
+            }
+            if (!r.ok) {
+              setExportStatus(
+                "Download failed: HTTP " + r.status,
+                "error",
+              );
+              return null;
+            }
+            return r.blob();
+          })
+          .then(function (blob) {
+            if (!blob) return;
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement("a");
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            setExportStatus("Downloaded " + filename + ".", "ok");
+          })
+          .catch(function (err) {
+            setExportStatus("Download failed: " + err.message, "error");
+          });
+      }
+
+      exportCouponsBtn.addEventListener("click", function () {
+        downloadExport(
+          "/admin/export/coupons",
+          "salvare-coupons-export.json",
+        );
+      });
+
+      exportResultsBtn.addEventListener("click", function () {
+        downloadExport(
+          "/admin/export/results",
+          "salvare-results-export.json",
+        );
       });
 
       refreshTokenStatusFromStorage();

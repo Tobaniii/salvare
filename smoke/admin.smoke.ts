@@ -16,6 +16,9 @@ test.describe("admin page UI", () => {
     await expect(page.locator("#health-schema")).toHaveText("yes");
     await expect(page.locator("#health-token")).toHaveText("no");
 
+    await expect(page.locator("#export-coupons-btn")).toBeVisible();
+    await expect(page.locator("#export-results-btn")).toBeVisible();
+
     const seededDomain = page.locator(".domain-name", { hasText: "smoke.test" });
     await expect(seededDomain).toBeVisible();
 
@@ -50,5 +53,19 @@ test.describe("admin page UI", () => {
     await addedSection.locator("button.delete-btn").click();
     await expect(page.locator("#status")).toHaveText("Deleted ui-add.com.");
     await expect(addedDomain).toHaveCount(0);
+
+    const couponsExport = await request.get(
+      `${salvare.baseUrl}/admin/export/coupons`,
+    );
+    expect(couponsExport.status()).toBe(200);
+    const couponsExportBody = await couponsExport.json();
+    expect(couponsExportBody["smoke.test"]).toEqual(["A1", "A2"]);
+
+    const resultsExport = await request.get(
+      `${salvare.baseUrl}/admin/export/results`,
+    );
+    expect(resultsExport.status()).toBe(200);
+    const resultsExportBody = await resultsExport.json();
+    expect(Array.isArray(resultsExportBody.results)).toBe(true);
   });
 });

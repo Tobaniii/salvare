@@ -77,6 +77,16 @@ const PROTECTED_ENDPOINTS: Array<{
     path: "/results?domain=example.com",
     init: { method: "DELETE" },
   },
+  {
+    name: "GET /admin/export/coupons",
+    path: "/admin/export/coupons",
+    init: { method: "GET" },
+  },
+  {
+    name: "GET /admin/export/results",
+    path: "/admin/export/results",
+    init: { method: "GET" },
+  },
 ];
 
 describe("auth disabled (no SALVARE_ADMIN_TOKEN)", () => {
@@ -259,6 +269,67 @@ describe("auth enabled (SALVARE_ADMIN_TOKEN set)", () => {
         deleted: true,
         domain: "to-delete.com",
       });
+    });
+
+    it("GET /admin/export/coupons returns the seed-shaped payload", async () => {
+      const res = await fetch(`${h.baseUrl}/admin/export/coupons`, {
+        headers: { Authorization: `Bearer ${TOKEN}` },
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toMatch(/application\/json/);
+      expect(res.headers.get("content-disposition")).toContain(
+        "salvare-coupons-export.json",
+      );
+      const body = await res.json();
+      expect(body["example.com"]).toEqual(["A1", "A2"]);
+    });
+
+    it("GET /admin/export/results returns the results envelope", async () => {
+      const res = await fetch(`${h.baseUrl}/admin/export/results`, {
+        headers: { Authorization: `Bearer ${TOKEN}` },
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toMatch(/application\/json/);
+      expect(res.headers.get("content-disposition")).toContain(
+        "salvare-results-export.json",
+      );
+      const body = await res.json();
+      expect(Array.isArray(body.results)).toBe(true);
+      expect(body.results.length).toBeGreaterThan(0);
+      const first = body.results[0];
+      expect(Object.keys(first).sort()).toEqual(
+        [
+          "code",
+          "domain",
+          "finalTotalCents",
+          "savingsCents",
+          "success",
+          "testedAt",
+        ].sort(),
+      );
+    });
+
+    it("export endpoints do not leak token, db path, headers, or env values", async () => {
+      const couponsRaw = await (
+        await fetch(`${h.baseUrl}/admin/export/coupons`, {
+          headers: { Authorization: `Bearer ${TOKEN}` },
+        })
+      ).text();
+      const resultsRaw = await (
+        await fetch(`${h.baseUrl}/admin/export/results`, {
+          headers: { Authorization: `Bearer ${TOKEN}` },
+        })
+      ).text();
+
+      for (const raw of [couponsRaw, resultsRaw]) {
+        expect(raw).not.toContain(TOKEN);
+        expect(raw).not.toContain("dbPath");
+        expect(raw).not.toContain("authorization");
+        expect(raw).not.toContain("Authorization");
+        expect(raw).not.toContain("SALVARE_ADMIN_TOKEN");
+        expect(raw).not.toContain("PATH");
+        expect(raw).not.toContain("HOME");
+      }
     });
 
     it("DELETE /results clears history for the domain", async () => {

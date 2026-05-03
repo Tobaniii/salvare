@@ -39,4 +39,15 @@ describe("getAdminHtml", () => {
     expect(html).toContain('id="health-token"');
     expect(html).toContain("Backend status");
   });
+
+  it("includes the data export section and buttons", () => {
+    const html = getAdminHtml();
+    expect(html).toContain("Data export");
+    expect(html).toContain('id="export-coupons-btn"');
+    expect(html).toContain('id="export-results-btn"');
+    expect(html).toContain("/admin/export/coupons");
+    expect(html).toContain("/admin/export/results");
+    expect(html).toContain("salvare-coupons-export.json");
+    expect(html).toContain("salvare-results-export.json");
+  });
 });

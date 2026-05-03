@@ -174,6 +174,8 @@ The startup log line will read `Salvare admin auth: ENABLED`. The server never l
 - `POST /admin/coupons`
 - `DELETE /admin/coupons`
 - `GET /admin/coupon-stats`
+- `GET /admin/export/coupons`
+- `GET /admin/export/results`
 - `DELETE /results`
 
 **Unprotected** (open even when the env var is set, so the unmodified extension keeps working, the admin page can load and prompt for a token, and local read access is preserved):
@@ -199,6 +201,44 @@ curl -X POST http://localhost:4123/admin/coupons \
 ### Backend status panel
 
 The admin shell shows a small **Backend status** panel at the top of the page. It calls the unprotected `GET /health` endpoint on load and renders the service name, version, and yes/no for: database schema initialized, coupon data present, result history present, and admin token configured. The panel never displays the token value, the DB path, coupon codes, or result records, and it loads in both no-token and token modes (no `Authorization` header is sent). If `/health` fails the panel shows "Backend status unavailable." without affecting the rest of the page.
+
+### Admin export endpoints
+
+Two read-only export endpoints expose the current SQLite contents in the same JSON shapes used by the bootstrap files and the `db:export` CLI:
+
+- `GET /admin/export/coupons` — returns the seed-shaped object grouped by domain (same shape as [`server/coupons.seed.json`](../server/coupons.seed.json)).
+- `GET /admin/export/results` — returns the `{ "results": [...] }` envelope (same shape as [`server/coupon-results.json`](../server/coupon-results.json)).
+
+Both endpoints are protected when `SALVARE_ADMIN_TOKEN` is configured and open otherwise, matching the rest of the `/admin/*` surface. Responses set `Content-Type: application/json` and a `Content-Disposition: attachment; filename="salvare-{coupons,results}-export.json"` header so curl/browser saves get a sensible default name.
+
+Payloads come from the same `buildExportPayloads(db)` helper used by `db:export`, so CLI exports and admin downloads share one source of truth. The payloads contain only coupon/domain/code data and result records (`domain`, `code`, `success`, `savingsCents`, `finalTotalCents`, `testedAt`). They never include the admin token, the DB path, request headers, environment variables, or any other internal field.
+
+```bash
+TOKEN="$SALVARE_ADMIN_TOKEN"
+curl -OJ -H "Authorization: Bearer $TOKEN" \
+  http://localhost:4123/admin/export/coupons
+curl -OJ -H "Authorization: Bearer $TOKEN" \
+  http://localhost:4123/admin/export/results
+```
+
+### Admin UI data export
+
+The admin shell includes a **Data export** section with two buttons: **Download coupons JSON** and **Download result history JSON**. Each button calls the matching `/admin/export/*` endpoint with the stored token (when token mode is on), reads the response as a Blob, and triggers a browser download with a deterministic filename:
+
+- `salvare-coupons-export.json`
+- `salvare-results-export.json`
+
+In token mode the buttons are visible before any token is entered, but downloads only succeed once a valid token has been saved via the **Admin token** bar — a missing/wrong token surfaces the existing unauthorized banner and a "Download failed: unauthorized." message in the export status line, with no crash.
+
+Browser-driven export covers the read-only download path. Destructive operations — `db:reset` and `db:import` — remain CLI-only by design so an open browser tab on a shared machine cannot wipe or overwrite local data with one click. The split is:
+
+| Operation                 | UI (browser)                       | CLI                                       |
+| ------------------------- | ---------------------------------- | ----------------------------------------- |
+| Download coupons JSON     | `GET /admin/export/coupons` button | `npm run db:export` writes to `server/exports/` |
+| Download results JSON     | `GET /admin/export/results` button | `npm run db:export` writes to `server/exports/` |
+| Raw `.db` snapshot        | —                                  | `npm run db:backup`                       |
+| Reset / re-bootstrap DB   | — (CLI-only for safety)            | `npm run db:reset`                        |
+| Import previous export    | — (CLI-only for safety)            | `npm run db:import -- --coupons … [--results …]` |
 
 ### Using the admin UI in token mode
 
