@@ -256,6 +256,8 @@ Three small CLIs handle backup, JSON export, and a one-shot reset of the configu
 npm run db:backup     # copy server/salvare.db → server/backups/salvare-<UTC>.db
 npm run db:export     # dump current SQLite data → server/exports/{coupons,coupon-results}-<UTC>.json
 npm run db:reset      # wipe + recreate schema + bootstrap from JSON sources
+npm run db:import -- --coupons <path> [--results <path>]
+                      # import a previous db:export back into the configured DB
 ```
 
 Behavior and safety notes:
@@ -266,6 +268,30 @@ Behavior and safety notes:
 - `server/salvare.db` is local runtime data and is gitignored.
 - `server/backups/` and `server/exports/` are gitignored — runtime artifacts must not be committed.
 - The JSON seed/result files in `server/` remain the bootstrap sources of truth; `db:reset` reimports from them, and admin/runtime writes still land in SQLite, not the JSON files.
+
+#### Import a previous export
+
+`db:import` is the inverse of `db:export`: it loads coupon/admin data and result history out of a JSON export back into the configured DB. Paths are explicit — there is no globbing and no auto-pick of the newest export, so the inputs are never ambiguous.
+
+```bash
+# recommended safe flow:
+npm run db:backup
+npm run db:import -- --coupons server/exports/coupons-<UTC>.json \
+                    --results server/exports/coupon-results-<UTC>.json
+```
+
+Either flag may be used on its own (importing only coupons or only results), but at least one of the two is required.
+
+Behavior:
+
+- **Coupons import** upserts each domain row and **replaces that domain's coupon-code list** in a single transaction (`upsertCouponCodes` semantics). Rerunning the same export is a no-op.
+- **Results import** groups rows by domain, then **per domain** deletes existing `coupon_results` rows for that domain and inserts the imported rows — atomically inside one transaction. Domains that are not present in the import file are not touched and keep their existing history. Rerunning the same export produces the same row count rather than duplicating records.
+- All writes are wrapped in `db.transaction(...)`. If validation fails or any insert throws, the transaction rolls back; an interrupted import cannot delete history without successfully reinserting it.
+- The importer only reads known fields (`domain`, `code`, `success`, `savingsCents`, `finalTotalCents`, `testedAt` for results; `{ [domain]: string[] }` for coupons). Unknown keys — including any stray `SALVARE_ADMIN_TOKEN`, `Authorization`, or `dbPath` someone may have hand-added to a JSON file — are silently dropped and never reach the database.
+- Refuses to operate on any path that resolves to `smoke/salvare.db`. Honors `SALVARE_DB_PATH`.
+- Invalid JSON or wrong shapes exit non-zero with a clear message naming the file and the specific validation failure. The output never echoes record contents.
+
+Always run `npm run db:backup` before `npm run db:import` if the target DB has data you care about — `db:import` is intentionally not auto-creating a backup. Export and import artifacts in `server/exports/` and `server/backups/` remain gitignored; do not commit them.
 
 ## Endpoint
 

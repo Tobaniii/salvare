@@ -22,6 +22,8 @@
     "db:export": "npm run build:db-export && node server/db-export-cli.js",
     "build:db-reset": "esbuild server/db-reset-cli.ts --bundle --platform=node --target=node20 --format=esm --outfile=server/db-reset-cli.js --external:better-sqlite3",
     "db:reset": "npm run build:db-reset && node server/db-reset-cli.js",
+    "build:db-import": "esbuild server/db-import-cli.ts --bundle --platform=node --target=node20 --format=esm --outfile=server/db-import-cli.js --external:better-sqlite3",
+    "db:import": "npm run build:db-import && node server/db-import-cli.js",
     "build:extension-harness": "esbuild smoke/extension-server-harness.ts --bundle --platform=node --target=node20 --format=esm --outfile=smoke/extension-server-harness.js --external:better-sqlite3",
     "test:smoke": "playwright test --project=chromium",
     "test:smoke:extension": "npm run build:extension && npm run build:extension-harness && playwright test --project=extension",
