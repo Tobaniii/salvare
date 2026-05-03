@@ -53,6 +53,40 @@ Listening: http://localhost:4123
 
 If JSON bootstrap imported any rows on this start (typically the first run on a fresh DB), an extra line summarises the import counts, e.g. `Bootstrap: imported 3 store(s), 9 code(s), 7 result(s) from JSON.`. Token values, coupon codes, and result rows are not printed — only counts and presence flags.
 
+### Health endpoint
+
+`GET /health` is a **local readiness/diagnostic endpoint, not a public monitoring API.** It is unprotected — it returns the same coarse-status JSON whether or not `SALVARE_ADMIN_TOKEN` is set, so a local script or a `curl` from the same machine can verify the server is up without needing the token.
+
+```bash
+curl http://localhost:4123/health
+```
+
+```json
+{
+  "ok": true,
+  "service": "salvare-backend",
+  "version": "0.9.0",
+  "database": {
+    "schemaInitialized": true,
+    "hasCoupons": true,
+    "hasResults": true
+  },
+  "auth": {
+    "adminTokenConfigured": false
+  }
+}
+```
+
+The response is intentionally coarse. It **never** includes the admin token value, the database path, coupon codes, result records, request headers, or an environment dump — only the service name, version, three schema/data booleans, and one `adminTokenConfigured` boolean.
+
+If the database status check throws (e.g. the DB file becomes unreadable mid-run), the endpoint returns `500` with a fixed body and does not leak the underlying error to the client:
+
+```json
+{ "ok": false, "service": "salvare-backend", "error": "health check failed" }
+```
+
+The raw error is logged server-side as `Salvare health check failed: …`. The version string is sourced from a single `SALVARE_VERSION` constant in [`server/health.ts`](../server/health.ts) — bump it there per milestone.
+
 ## Smoke tests
 
 Browser-driven smoke tests live in [`smoke/`](../smoke/) and cover the local backend, the admin page UI, and the Chrome extension on the local React checkout. They use Playwright and isolated in-memory or temporary SQLite databases per test — `server/salvare.db` is never opened or modified. Any temporary on-disk DB used by smoke runs lives at `smoke/salvare.db` and is gitignored — do not commit it.

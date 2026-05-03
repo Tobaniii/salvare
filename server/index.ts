@@ -27,10 +27,17 @@ import {
   getResultsForDomain,
 } from "./db-results";
 import { isAuthorized } from "./auth";
+import {
+  buildHealthFailureResponse,
+  buildHealthResponse,
+  SALVARE_VERSION,
+} from "./health";
 
 export interface SalvareServerOptions {
   db: Db;
   adminToken: string | null;
+  /** Service version reported by GET /health. Defaults to SALVARE_VERSION. */
+  version?: string;
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown) {
@@ -51,6 +58,7 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 
 export function createSalvareServer(options: SalvareServerOptions): Server {
   const { db, adminToken } = options;
+  const version = options.version ?? SALVARE_VERSION;
 
   function requireAuth(req: IncomingMessage, res: ServerResponse): boolean {
     if (isAuthorized(req.headers, adminToken)) return true;
@@ -78,6 +86,26 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
     }
 
     const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
+
+    // Unprotected — exposes only coarse status booleans + service/version.
+    // See server/health.ts for the redaction rationale.
+    if (req.method === "GET" && url.pathname === "/health") {
+      try {
+        sendJson(
+          res,
+          200,
+          buildHealthResponse({
+            db,
+            adminTokenConfigured: adminToken !== null,
+            version,
+          }),
+        );
+      } catch (err) {
+        console.error("Salvare health check failed:", err);
+        sendJson(res, 500, buildHealthFailureResponse());
+      }
+      return;
+    }
 
     if (req.method === "GET" && url.pathname === "/coupons") {
       const domain = url.searchParams.get("domain")?.trim();

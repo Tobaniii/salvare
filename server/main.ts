@@ -15,6 +15,7 @@ import { bootstrapIfEmpty } from "./db-coupons";
 import { bootstrapResultsIfEmpty } from "./db-results";
 import { parseServerConfig } from "./config";
 import { buildStartupDiagnostics, getDatabaseStatus } from "./diagnostics";
+import { SALVARE_VERSION } from "./health";
 
 const DEFAULT_PORT = 4123;
 
@@ -69,7 +70,11 @@ function main(): void {
     }),
   );
 
-  const server = createSalvareServer({ db, adminToken: config.adminToken });
+  const server = createSalvareServer({
+    db,
+    adminToken: config.adminToken,
+    version: SALVARE_VERSION,
+  });
   server.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {
       fail(

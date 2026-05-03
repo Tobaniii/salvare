@@ -122,6 +122,17 @@ describe("auth disabled (no SALVARE_ADMIN_TOKEN)", () => {
     const res = await fetch(`${h.baseUrl}/results?domain=example.com`);
     expect(res.status).toBe(200);
   });
+
+  it("GET /health is unprotected and reports adminTokenConfigured: false", async () => {
+    const res = await fetch(`${h.baseUrl}/health`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: true,
+      service: "salvare-backend",
+      auth: { adminTokenConfigured: false },
+    });
+  });
 });
 
 describe("auth enabled (SALVARE_ADMIN_TOKEN set)", () => {
@@ -286,6 +297,31 @@ describe("auth enabled (SALVARE_ADMIN_TOKEN set)", () => {
     it("GET /results works without Authorization", async () => {
       const res = await fetch(`${h.baseUrl}/results?domain=example.com`);
       expect(res.status).toBe(200);
+    });
+
+    it("GET /health works without Authorization and reflects token-configured", async () => {
+      const res = await fetch(`${h.baseUrl}/health`);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+      expect(body.service).toBe("salvare-backend");
+      expect(typeof body.version).toBe("string");
+      expect(body.database).toMatchObject({
+        schemaInitialized: true,
+        hasCoupons: true,
+        hasResults: true,
+      });
+      expect(body.auth).toEqual({ adminTokenConfigured: true });
+    });
+
+    it("GET /health response does not contain the configured token value or seeded data", async () => {
+      const res = await fetch(`${h.baseUrl}/health`);
+      const raw = await res.text();
+      expect(raw).not.toContain(TOKEN);
+      // The harness seeds coupon code "A1" and domain "example.com" — neither
+      // should leak through /health (coarse booleans only).
+      expect(raw).not.toContain("A1");
+      expect(raw).not.toContain("example.com");
     });
   });
 
