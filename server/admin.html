@@ -149,6 +149,38 @@
         margin-top: 8px;
         color: #555;
       }
+      .status-bar {
+        border: 1px solid #e2e2e2;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 16px;
+        background: #f8fafc;
+      }
+      .status-bar h2 {
+        margin: 0 0 8px;
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #555;
+      }
+      .status-bar dl {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 4px 12px;
+        margin: 0;
+        font-size: 13px;
+      }
+      .status-bar dt {
+        color: #555;
+      }
+      .status-bar dd {
+        margin: 0;
+        color: #222;
+      }
+      .status-bar .status-error {
+        color: #b91c1c;
+        font-size: 13px;
+      }
       #auth-banner {
         display: none;
         border: 1px solid #fca5a5;
@@ -175,6 +207,30 @@
       Manage seeded coupon candidates served by the local backend at
       <code>localhost:4123</code>. Local development only.
     </p>
+
+    <section
+      class="status-bar"
+      id="health-panel"
+      aria-label="Backend status"
+    >
+      <h2>Backend status</h2>
+      <div id="health-content">
+        <dl>
+          <dt>Service</dt>
+          <dd id="health-service">Loading…</dd>
+          <dt>Version</dt>
+          <dd id="health-version">Loading…</dd>
+          <dt>Database schema initialized</dt>
+          <dd id="health-schema">Loading…</dd>
+          <dt>Coupon data present</dt>
+          <dd id="health-coupons">Loading…</dd>
+          <dt>Result history present</dt>
+          <dd id="health-results">Loading…</dd>
+          <dt>Admin token configured</dt>
+          <dd id="health-token">Loading…</dd>
+        </dl>
+      </div>
+    </section>
 
     <section class="token-bar" aria-label="Admin token">
       <h2>Admin token</h2>
@@ -239,6 +295,59 @@
       var tokenClearBtn = document.getElementById("token-clear");
       var tokenStatusEl = document.getElementById("token-status");
       var authBanner = document.getElementById("auth-banner");
+      var healthContentEl = document.getElementById("health-content");
+
+      function yesNo(value) {
+        return value ? "yes" : "no";
+      }
+
+      function renderHealthError() {
+        healthContentEl.innerHTML = "";
+        var p = document.createElement("p");
+        p.className = "status-error";
+        p.textContent = "Backend status unavailable.";
+        healthContentEl.appendChild(p);
+      }
+
+      function renderHealth(data) {
+        var db = data.database || {};
+        var auth = data.auth || {};
+        document.getElementById("health-service").textContent =
+          data.service || "—";
+        document.getElementById("health-version").textContent =
+          data.version || "—";
+        document.getElementById("health-schema").textContent = yesNo(
+          db.schemaInitialized,
+        );
+        document.getElementById("health-coupons").textContent = yesNo(
+          db.hasCoupons,
+        );
+        document.getElementById("health-results").textContent = yesNo(
+          db.hasResults,
+        );
+        document.getElementById("health-token").textContent = yesNo(
+          auth.adminTokenConfigured,
+        );
+      }
+
+      function loadHealth() {
+        return fetch("/health")
+          .then(function (r) {
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            return r.json();
+          })
+          .then(function (data) {
+            if (!data || data.ok !== true) {
+              renderHealthError();
+              return;
+            }
+            renderHealth(data);
+          })
+          .catch(function (err) {
+            console.warn("Salvare admin health fetch failed", err);
+            renderHealthError();
+          });
+      }
 
       var TOKEN_STORAGE_KEY = "salvareAdminToken";
 
@@ -560,6 +669,7 @@
       });
 
       refreshTokenStatusFromStorage();
+      loadHealth();
       loadCoupons();
     </script>
   </body>

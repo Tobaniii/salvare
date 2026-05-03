@@ -11,6 +11,11 @@ test.describe("admin page UI", () => {
     await page.goto(`${salvare.baseUrl}/admin`);
     await expect(page.getByRole("heading", { name: "Salvare admin" })).toBeVisible();
 
+    await expect(page.locator("#health-service")).toHaveText("salvare-backend");
+    await expect(page.locator("#health-version")).not.toHaveText("Loading…");
+    await expect(page.locator("#health-schema")).toHaveText("yes");
+    await expect(page.locator("#health-token")).toHaveText("no");
+
     const seededDomain = page.locator(".domain-name", { hasText: "smoke.test" });
     await expect(seededDomain).toBeVisible();
 

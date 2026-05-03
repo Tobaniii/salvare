@@ -27,4 +27,16 @@ describe("getAdminHtml", () => {
     expect(html).toContain('id="admin-form"');
     expect(html).toContain('id="domains"');
   });
+
+  it("includes the backend status panel markers", () => {
+    const html = getAdminHtml();
+    expect(html).toContain('id="health-panel"');
+    expect(html).toContain('id="health-service"');
+    expect(html).toContain('id="health-version"');
+    expect(html).toContain('id="health-schema"');
+    expect(html).toContain('id="health-coupons"');
+    expect(html).toContain('id="health-results"');
+    expect(html).toContain('id="health-token"');
+    expect(html).toContain("Backend status");
+  });
 });

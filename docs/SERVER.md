@@ -196,6 +196,10 @@ curl -X POST http://localhost:4123/admin/coupons \
   -d '{"domain":"example.com","candidateCodes":["WELCOME10"]}'
 ```
 
+### Backend status panel
+
+The admin shell shows a small **Backend status** panel at the top of the page. It calls the unprotected `GET /health` endpoint on load and renders the service name, version, and yes/no for: database schema initialized, coupon data present, result history present, and admin token configured. The panel never displays the token value, the DB path, coupon codes, or result records, and it loads in both no-token and token modes (no `Authorization` header is sent). If `/health` fails the panel shows "Backend status unavailable." without affecting the rest of the page.
+
 ### Using the admin UI in token mode
 
 `GET /admin` is unprotected so the static admin shell can load in a browser even when token auth is on. The shell renders an "Admin token required or invalid" banner and an **Admin token** bar at the top of the page until a valid token is provided.

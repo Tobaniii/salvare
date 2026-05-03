@@ -21,6 +21,11 @@ test.describe("token-mode smoke", () => {
       ).toBeVisible();
       await expect(page.locator("#auth-banner")).toBeVisible();
       await expect(page.locator(".domain-section")).toHaveCount(0);
+      await expect(page.locator("#health-service")).toHaveText(
+        "salvare-backend",
+      );
+      await expect(page.locator("#health-token")).toHaveText("yes");
+      await expect(page.locator("#health-schema")).toHaveText("yes");
     });
 
     test("entering correct token loads seeded domains; clearing returns to banner", async ({
