@@ -27,6 +27,12 @@ import {
   getResultsForDomain,
 } from "./db-results";
 import { buildExportPayloads } from "./db-maintenance";
+import {
+  parseCouponsExport,
+  parseResultsExport,
+  summarizeCouponsPreview,
+  summarizeResultsPreview,
+} from "./db-import";
 import { isAuthorized } from "./auth";
 import {
   buildHealthFailureResponse,
@@ -171,6 +177,50 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
         'attachment; filename="salvare-coupons-export.json"',
       );
       res.end(JSON.stringify(coupons));
+      return;
+    }
+
+    if (
+      req.method === "POST" &&
+      url.pathname === "/admin/import/preview/coupons"
+    ) {
+      if (!requireAuth(req, res)) return;
+      let body: unknown;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, { ok: false, error: "invalid import payload" });
+        return;
+      }
+      const parsed = parseCouponsExport(body);
+      if (!parsed.ok) {
+        console.warn("Salvare import preview rejected coupons payload");
+        sendJson(res, 400, { ok: false, error: "invalid import payload" });
+        return;
+      }
+      sendJson(res, 200, summarizeCouponsPreview(parsed.value));
+      return;
+    }
+
+    if (
+      req.method === "POST" &&
+      url.pathname === "/admin/import/preview/results"
+    ) {
+      if (!requireAuth(req, res)) return;
+      let body: unknown;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, { ok: false, error: "invalid import payload" });
+        return;
+      }
+      const parsed = parseResultsExport(body);
+      if (!parsed.ok) {
+        console.warn("Salvare import preview rejected results payload");
+        sendJson(res, 400, { ok: false, error: "invalid import payload" });
+        return;
+      }
+      sendJson(res, 200, summarizeResultsPreview(parsed.value));
       return;
     }
 

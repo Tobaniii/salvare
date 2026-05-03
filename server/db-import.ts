@@ -113,6 +113,67 @@ export function parseResultsExport(raw: unknown): ParseResult<ResultsEnvelope> {
   return { ok: true, value: { results: out } };
 }
 
+const DEFAULT_PREVIEW_SAMPLE_LIMIT = 20;
+
+export interface CouponsPreviewSummary {
+  ok: true;
+  type: "coupons";
+  domains: number;
+  codes: number;
+  domainNames: string[];
+  domainNamesTruncated: boolean;
+}
+
+export function summarizeCouponsPreview(
+  seed: SeedData,
+  sampleLimit: number = DEFAULT_PREVIEW_SAMPLE_LIMIT,
+): CouponsPreviewSummary {
+  const allDomains = Object.keys(seed).sort();
+  let codes = 0;
+  for (const domain of allDomains) {
+    codes += seed[domain].length;
+  }
+  const truncated = allDomains.length > sampleLimit;
+  const domainNames = truncated ? allDomains.slice(0, sampleLimit) : allDomains;
+  return {
+    ok: true,
+    type: "coupons",
+    domains: allDomains.length,
+    codes,
+    domainNames,
+    domainNamesTruncated: truncated,
+  };
+}
+
+export interface ResultsPreviewSummary {
+  ok: true;
+  type: "results";
+  records: number;
+  domains: number;
+  domainNames: string[];
+  domainNamesTruncated: boolean;
+}
+
+export function summarizeResultsPreview(
+  envelope: ResultsEnvelope,
+  sampleLimit: number = DEFAULT_PREVIEW_SAMPLE_LIMIT,
+): ResultsPreviewSummary {
+  const records = envelope.results;
+  const domainSet = new Set<string>();
+  for (const r of records) domainSet.add(r.domain);
+  const allDomains = Array.from(domainSet).sort();
+  const truncated = allDomains.length > sampleLimit;
+  const domainNames = truncated ? allDomains.slice(0, sampleLimit) : allDomains;
+  return {
+    ok: true,
+    type: "results",
+    records: records.length,
+    domains: allDomains.length,
+    domainNames,
+    domainNamesTruncated: truncated,
+  };
+}
+
 export interface CouponsImportStats {
   storesImported: number;
   codesImported: number;

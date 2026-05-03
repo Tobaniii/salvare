@@ -169,6 +169,91 @@ test.describe("token-mode smoke", () => {
     expect(Array.isArray(body.results)).toBe(true);
   });
 
+  test("POST /admin/import/preview/coupons rejects without Authorization, accepts with token", async ({
+    salvareWithToken,
+    request,
+  }) => {
+    const unauth = await request.post(
+      `${salvareWithToken.baseUrl}/admin/import/preview/coupons`,
+      { data: { "x.com": ["X1"] } },
+    );
+    expect(unauth.status()).toBe(401);
+
+    const ok = await request.post(
+      `${salvareWithToken.baseUrl}/admin/import/preview/coupons`,
+      {
+        headers: { Authorization: `Bearer ${salvareWithToken.token}` },
+        data: { "x.com": ["X1", "X2"] },
+      },
+    );
+    expect(ok.status()).toBe(200);
+    const body = await ok.json();
+    expect(body).toMatchObject({
+      ok: true,
+      type: "coupons",
+      domains: 1,
+      codes: 2,
+      domainNamesTruncated: false,
+    });
+  });
+
+  test("POST /admin/import/preview/results rejects without Authorization, accepts with token", async ({
+    salvareWithToken,
+    request,
+  }) => {
+    const unauth = await request.post(
+      `${salvareWithToken.baseUrl}/admin/import/preview/results`,
+      { data: { results: [] } },
+    );
+    expect(unauth.status()).toBe(401);
+
+    const ok = await request.post(
+      `${salvareWithToken.baseUrl}/admin/import/preview/results`,
+      {
+        headers: { Authorization: `Bearer ${salvareWithToken.token}` },
+        data: {
+          results: [
+            {
+              domain: "x.com",
+              code: "X1",
+              success: true,
+              savingsCents: 100,
+              finalTotalCents: 900,
+              testedAt: "2026-05-03T00:00:00.000Z",
+            },
+          ],
+        },
+      },
+    );
+    expect(ok.status()).toBe(200);
+    const body = await ok.json();
+    expect(body).toMatchObject({
+      ok: true,
+      type: "results",
+      records: 1,
+      domains: 1,
+      domainNamesTruncated: false,
+    });
+  });
+
+  test("import preview returns 400 with safe error for invalid payload", async ({
+    salvareWithToken,
+    request,
+  }) => {
+    const res = await request.post(
+      `${salvareWithToken.baseUrl}/admin/import/preview/coupons`,
+      {
+        headers: { Authorization: `Bearer ${salvareWithToken.token}` },
+        data: { "bad.com": "not-an-array" },
+      },
+    );
+    expect(res.status()).toBe(400);
+    expect(await res.json()).toEqual({
+      ok: false,
+      error: "invalid import payload",
+    });
+  });
+
   test("GET /coupons stays open without Authorization", async ({
     salvareWithToken,
     request,

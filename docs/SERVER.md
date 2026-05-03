@@ -176,6 +176,8 @@ The startup log line will read `Salvare admin auth: ENABLED`. The server never l
 - `GET /admin/coupon-stats`
 - `GET /admin/export/coupons`
 - `GET /admin/export/results`
+- `POST /admin/import/preview/coupons`
+- `POST /admin/import/preview/results`
 - `DELETE /results`
 
 **Unprotected** (open even when the env var is set, so the unmodified extension keeps working, the admin page can load and prompt for a token, and local read access is preserved):
@@ -238,7 +240,49 @@ Browser-driven export covers the read-only download path. Destructive operations
 | Download results JSON     | `GET /admin/export/results` button | `npm run db:export` writes to `server/exports/` |
 | Raw `.db` snapshot        | —                                  | `npm run db:backup`                       |
 | Reset / re-bootstrap DB   | — (CLI-only for safety)            | `npm run db:reset`                        |
-| Import previous export    | — (CLI-only for safety)            | `npm run db:import -- --coupons … [--results …]` |
+| Import previous export    | — (apply remains CLI-only for safety) | `npm run db:import -- --coupons … [--results …]` |
+| Validate import payload (no apply) | `POST /admin/import/preview/{coupons,results}` | implicit — `db:import` validates before apply |
+
+### Admin import preview endpoints
+
+Two read-only endpoints accept a previously exported JSON payload, validate it with the same strict parser used by `db:import`, and return a small summary describing what *would* be imported. They never write to SQLite and never touch the committed bootstrap JSON files.
+
+- `POST /admin/import/preview/coupons` — body = exported coupons JSON (object grouped by domain).
+- `POST /admin/import/preview/results` — body = `{ "results": [...] }` envelope.
+
+Both endpoints are protected when `SALVARE_ADMIN_TOKEN` is configured and open otherwise, matching the rest of the `/admin/*` surface.
+
+Successful response shapes:
+
+```json
+{
+  "ok": true,
+  "type": "coupons",
+  "domains": 2,
+  "codes": 5,
+  "domainNames": ["example.com", "localhost"],
+  "domainNamesTruncated": false
+}
+```
+
+```json
+{
+  "ok": true,
+  "type": "results",
+  "records": 7,
+  "domains": 2,
+  "domainNames": ["example.com", "localhost"],
+  "domainNamesTruncated": false
+}
+```
+
+`domainNames` is sorted alphabetically and capped at the first 20 entries; `domainNamesTruncated` is `true` when the cap fired so callers know the sample is partial. The `domains`/`codes`/`records` totals are always full counts.
+
+Invalid input — wrong shape, missing fields, unparseable JSON — returns `400 { "ok": false, "error": "invalid import payload" }`. The error body is a fixed string; raw payload contents are never echoed back. Server-side logging is a single warning line (no payload dump).
+
+Preview responses contain only the summary above. They never include the admin token, DB path, request headers, environment variables, full coupon code lists, full result records, or any unknown fields the caller smuggled in (the validator drops unknown keys before the summarizer ever sees them).
+
+Actual import remains **CLI-only** via `npm run db:import` for now. The preview endpoints exist so a future browser import UI can show users exactly what they're about to apply before any apply path ships.
 
 ### Using the admin UI in token mode
 

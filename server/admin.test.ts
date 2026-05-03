@@ -50,4 +50,11 @@ describe("getAdminHtml", () => {
     expect(html).toContain("salvare-coupons-export.json");
     expect(html).toContain("salvare-results-export.json");
   });
+
+  it("includes the import-CLI-only note pointing at preview endpoints", () => {
+    const html = getAdminHtml();
+    expect(html).toContain('id="import-note"');
+    expect(html).toContain("npm run db:import");
+    expect(html).toContain("/admin/import/preview/");
+  });
 });

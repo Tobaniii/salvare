@@ -87,6 +87,24 @@ const PROTECTED_ENDPOINTS: Array<{
     path: "/admin/export/results",
     init: { method: "GET" },
   },
+  {
+    name: "POST /admin/import/preview/coupons",
+    path: "/admin/import/preview/coupons",
+    init: {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ "preview.com": ["P1"] }),
+    },
+  },
+  {
+    name: "POST /admin/import/preview/results",
+    path: "/admin/import/preview/results",
+    init: {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ results: [] }),
+    },
+  },
 ];
 
 describe("auth disabled (no SALVARE_ADMIN_TOKEN)", () => {
@@ -329,6 +347,244 @@ describe("auth enabled (SALVARE_ADMIN_TOKEN set)", () => {
         expect(raw).not.toContain("SALVARE_ADMIN_TOKEN");
         expect(raw).not.toContain("PATH");
         expect(raw).not.toContain("HOME");
+      }
+    });
+
+    it("POST /admin/import/preview/coupons returns the summary for a valid payload", async () => {
+      const res = await fetch(
+        `${h.baseUrl}/admin/import/preview/coupons`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${TOKEN}`,
+          },
+          body: JSON.stringify({
+            "preview-a.com": ["A1", "A2"],
+            "preview-b.com": ["B1"],
+          }),
+        },
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual({
+        ok: true,
+        type: "coupons",
+        domains: 2,
+        codes: 3,
+        domainNames: ["preview-a.com", "preview-b.com"],
+        domainNamesTruncated: false,
+      });
+    });
+
+    it("POST /admin/import/preview/results returns the summary for a valid payload", async () => {
+      const res = await fetch(
+        `${h.baseUrl}/admin/import/preview/results`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${TOKEN}`,
+          },
+          body: JSON.stringify({
+            results: [
+              {
+                domain: "preview-a.com",
+                code: "A1",
+                success: true,
+                savingsCents: 100,
+                finalTotalCents: 900,
+                testedAt: "2026-05-03T00:00:00.000Z",
+              },
+              {
+                domain: "preview-b.com",
+                code: "B1",
+                success: false,
+                savingsCents: 0,
+                finalTotalCents: 1000,
+                testedAt: "2026-05-03T01:00:00.000Z",
+              },
+            ],
+          }),
+        },
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual({
+        ok: true,
+        type: "results",
+        records: 2,
+        domains: 2,
+        domainNames: ["preview-a.com", "preview-b.com"],
+        domainNamesTruncated: false,
+      });
+    });
+
+    it("import preview rejects invalid coupons payload with safe error body", async () => {
+      const res = await fetch(
+        `${h.baseUrl}/admin/import/preview/coupons`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${TOKEN}`,
+          },
+          body: JSON.stringify({ "bad.com": "not-an-array" }),
+        },
+      );
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        ok: false,
+        error: "invalid import payload",
+      });
+    });
+
+    it("import preview rejects invalid results payload with safe error body", async () => {
+      const res = await fetch(
+        `${h.baseUrl}/admin/import/preview/results`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${TOKEN}`,
+          },
+          body: JSON.stringify({ results: [{ domain: "x.com" }] }),
+        },
+      );
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        ok: false,
+        error: "invalid import payload",
+      });
+    });
+
+    it("import preview rejects malformed JSON body with safe error", async () => {
+      const res = await fetch(
+        `${h.baseUrl}/admin/import/preview/coupons`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${TOKEN}`,
+          },
+          body: "{not json",
+        },
+      );
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        ok: false,
+        error: "invalid import payload",
+      });
+    });
+
+    it("import preview does not mutate database contents", async () => {
+      const before = await (
+        await fetch(`${h.baseUrl}/admin/export/coupons`, {
+          headers: { Authorization: `Bearer ${TOKEN}` },
+        })
+      ).text();
+      const beforeResults = await (
+        await fetch(`${h.baseUrl}/admin/export/results`, {
+          headers: { Authorization: `Bearer ${TOKEN}` },
+        })
+      ).text();
+
+      await fetch(`${h.baseUrl}/admin/import/preview/coupons`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${TOKEN}`,
+        },
+        body: JSON.stringify({ "should-not-persist.com": ["NEVER"] }),
+      });
+      await fetch(`${h.baseUrl}/admin/import/preview/results`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${TOKEN}`,
+        },
+        body: JSON.stringify({
+          results: [
+            {
+              domain: "should-not-persist.com",
+              code: "NEVER",
+              success: true,
+              savingsCents: 1,
+              finalTotalCents: 1,
+              testedAt: "2026-05-03T00:00:00.000Z",
+            },
+          ],
+        }),
+      });
+
+      const after = await (
+        await fetch(`${h.baseUrl}/admin/export/coupons`, {
+          headers: { Authorization: `Bearer ${TOKEN}` },
+        })
+      ).text();
+      const afterResults = await (
+        await fetch(`${h.baseUrl}/admin/export/results`, {
+          headers: { Authorization: `Bearer ${TOKEN}` },
+        })
+      ).text();
+      expect(after).toBe(before);
+      expect(afterResults).toBe(beforeResults);
+      expect(after).not.toContain("should-not-persist.com");
+      expect(afterResults).not.toContain("should-not-persist.com");
+    });
+
+    it("import preview responses do not leak token, db path, headers, env vars, full records, or unknown fields", async () => {
+      const couponsRes = await fetch(
+        `${h.baseUrl}/admin/import/preview/coupons`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${TOKEN}`,
+          },
+          body: JSON.stringify({
+            "leak-test.com": ["SECRETCODE"],
+          }),
+        },
+      );
+      const couponsRaw = await couponsRes.text();
+
+      const resultsRes = await fetch(
+        `${h.baseUrl}/admin/import/preview/results`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${TOKEN}`,
+          },
+          body: JSON.stringify({
+            results: [
+              {
+                domain: "leak-test.com",
+                code: "SECRETCODE",
+                success: true,
+                savingsCents: 12345,
+                finalTotalCents: 67890,
+                testedAt: "2026-05-03T00:00:00.000Z",
+                bonusUnknownField: "should-not-echo",
+              },
+            ],
+          }),
+        },
+      );
+      const resultsRaw = await resultsRes.text();
+
+      for (const raw of [couponsRaw, resultsRaw]) {
+        expect(raw).not.toContain(TOKEN);
+        expect(raw).not.toContain("dbPath");
+        expect(raw).not.toContain("authorization");
+        expect(raw).not.toContain("Authorization");
+        expect(raw).not.toContain("PATH");
+        expect(raw).not.toContain("HOME");
+        expect(raw).not.toContain("SECRETCODE");
+        expect(raw).not.toContain("12345");
+        expect(raw).not.toContain("67890");
+        expect(raw).not.toContain("bonusUnknownField");
       }
     });
 

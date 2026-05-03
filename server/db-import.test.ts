@@ -14,6 +14,8 @@ import {
   importResultsExport,
   parseCouponsExport,
   parseResultsExport,
+  summarizeCouponsPreview,
+  summarizeResultsPreview,
 } from "./db-import";
 
 let workDir: string;
@@ -316,5 +318,107 @@ describe("importResultsExport", () => {
     expect(blob).not.toMatch(/Authorization/i);
     expect(blob).not.toMatch(/dbPath/i);
     db.close();
+  });
+});
+
+describe("summarizeCouponsPreview", () => {
+  it("counts domains and codes and lists sorted domain names", () => {
+    const summary = summarizeCouponsPreview({
+      "b.com": ["B1", "B2"],
+      "a.com": ["A1", "A2", "A3"],
+    });
+    expect(summary).toEqual({
+      ok: true,
+      type: "coupons",
+      domains: 2,
+      codes: 5,
+      domainNames: ["a.com", "b.com"],
+      domainNamesTruncated: false,
+    });
+  });
+
+  it("truncates the sample list and sets domainNamesTruncated", () => {
+    const seed: Record<string, string[]> = {};
+    for (let i = 0; i < 25; i++) {
+      seed[`d${String(i).padStart(2, "0")}.com`] = ["X"];
+    }
+    const summary = summarizeCouponsPreview(seed);
+    expect(summary.domains).toBe(25);
+    expect(summary.codes).toBe(25);
+    expect(summary.domainNames).toHaveLength(20);
+    expect(summary.domainNames[0]).toBe("d00.com");
+    expect(summary.domainNames[19]).toBe("d19.com");
+    expect(summary.domainNamesTruncated).toBe(true);
+  });
+
+  it("handles an empty seed", () => {
+    expect(summarizeCouponsPreview({})).toEqual({
+      ok: true,
+      type: "coupons",
+      domains: 0,
+      codes: 0,
+      domainNames: [],
+      domainNamesTruncated: false,
+    });
+  });
+});
+
+describe("summarizeResultsPreview", () => {
+  it("counts records and unique domains; lists sorted domain names", () => {
+    const summary = summarizeResultsPreview({
+      results: [
+        {
+          domain: "b.com",
+          code: "B1",
+          success: true,
+          savingsCents: 100,
+          finalTotalCents: 900,
+          testedAt: "2026-05-03T00:00:00.000Z",
+        },
+        {
+          domain: "a.com",
+          code: "A1",
+          success: false,
+          savingsCents: 0,
+          finalTotalCents: 1000,
+          testedAt: "2026-05-03T01:00:00.000Z",
+        },
+        {
+          domain: "a.com",
+          code: "A2",
+          success: true,
+          savingsCents: 50,
+          finalTotalCents: 950,
+          testedAt: "2026-05-03T02:00:00.000Z",
+        },
+      ],
+    });
+    expect(summary).toEqual({
+      ok: true,
+      type: "results",
+      records: 3,
+      domains: 2,
+      domainNames: ["a.com", "b.com"],
+      domainNamesTruncated: false,
+    });
+  });
+
+  it("truncates sample list when more than 20 unique domains", () => {
+    const records = [];
+    for (let i = 0; i < 30; i++) {
+      records.push({
+        domain: `d${String(i).padStart(2, "0")}.com`,
+        code: "X",
+        success: true,
+        savingsCents: 0,
+        finalTotalCents: 0,
+        testedAt: "2026-05-03T00:00:00.000Z",
+      });
+    }
+    const summary = summarizeResultsPreview({ results: records });
+    expect(summary.records).toBe(30);
+    expect(summary.domains).toBe(30);
+    expect(summary.domainNames).toHaveLength(20);
+    expect(summary.domainNamesTruncated).toBe(true);
   });
 });
