@@ -38,13 +38,14 @@ Salvare is a React + TypeScript app and a companion Chrome extension that finds 
 
 ## Local development backend
 
-A small prototype backend lives in `server/` and runs on `http://localhost:4123`. It is local-only — no hosted API, no scraping, no third-party calls.
+A small Node + TypeScript backend lives in `server/` and runs on `http://localhost:4123`. It is a local development server — no hosted API, no scraping, no third-party calls.
 
 - Candidate-code provider: `couponProvider.ts` calls `GET /coupons?domain=…` first and falls back to mock/profile candidate codes when the backend is unreachable, slow, or returns an unexpected shape. When local result history exists, the backend orders the returned codes by past performance — successful codes first, then no-history codes in seed order, then failure-only codes; ranking never adds or removes codes.
 - Admin page: open `http://localhost:4123/admin` to view, add, update, or delete seeded domains. Backed by `GET/POST/DELETE /admin/coupons`.
 - Result history: the extension fires a best-effort `POST /results` after each tested coupon. `GET /results?domain=…` returns the recorded outcomes.
 - Runtime persistence is SQLite at `server/salvare.db` (local, gitignored — do not commit). [`server/coupons.seed.json`](server/coupons.seed.json) and [`server/coupon-results.json`](server/coupon-results.json) are bootstrap-only sources used to populate a fresh database via `npm run db:bootstrap`. After bootstrap, admin edits and reported results live in SQLite.
-- No auth. The endpoints are intended for local development only.
+- Optional local hardening: setting `SALVARE_ADMIN_TOKEN` requires `Authorization: Bearer <token>` on admin and destructive endpoints. The admin page itself prompts for the token and stores it in `localStorage`. `GET /coupons`, `POST /results`, and `GET /results` stay open so the unmodified extension keeps working. This is local hardening, not production auth.
+- The endpoints are intended for local development only.
 
 See [`docs/SERVER.md`](docs/SERVER.md), [`docs/SEED_DATA.md`](docs/SEED_DATA.md), and [`docs/API_DESIGN.md`](docs/API_DESIGN.md) for details.
 
@@ -127,7 +128,15 @@ Then in Chrome:
 
 ## Backend/API readiness
 
-A local development backend prototype lives in `server/`. The extension's `couponProvider.ts` calls `http://localhost:4123/coupons` first and falls back to mock candidate codes when the backend is unreachable, slow, or returns an unexpected shape. Everything is local — there is no hosted API, no scraping, and no third-party calls.
+A local development backend lives in `server/`. The extension's `couponProvider.ts` calls `http://localhost:4123/coupons` first and falls back to mock candidate codes when the backend is unreachable, slow, or returns an unexpected shape. Everything is local — there is no hosted API, no scraping, and no third-party calls.
+
+## Milestone status
+
+- **v0.6.0** — Runtime persistence moved to SQLite (`server/salvare.db`); JSON files in `server/` are now bootstrap-only sources.
+- **v0.7.0** — Optional `SALVARE_ADMIN_TOKEN` protection for admin and destructive endpoints; the extension's read/report endpoints stay open.
+- **v0.7.1** — Backend and admin-page Playwright smoke tests with isolated in-memory databases.
+- **v0.7.2** — Admin UI prompts for and stores the admin token in `localStorage` so the page works in token mode.
+- **v0.8.0** — Chrome extension Playwright smoke tests covering the local React checkout flow (popup readiness → Find Best Coupon → result reporting). Shopify and WooCommerce profiles are still exercised manually.
 
 ## Current limitations
 

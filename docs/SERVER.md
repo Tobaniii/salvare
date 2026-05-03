@@ -1,6 +1,6 @@
 # Salvare Coupon API — Local Server
 
-A minimal Node + TypeScript prototype of the coupon API described in `docs/API_DESIGN.md`. The Chrome extension is wired to it via `extension/couponProvider.ts` (`backend-with-fallback` mode by default) and `extension/resultReporter.ts`.
+A small Node + TypeScript backend implementing the coupon API described in `docs/API_DESIGN.md`. The Chrome extension is wired to it via `extension/couponProvider.ts` (`backend-with-fallback` mode by default) and `extension/resultReporter.ts`. Local development only — there is no hosted API, no scraping, and no external coupon discovery.
 
 Runtime persistence is SQLite at `server/salvare.db`. The two JSON files in `server/` are bootstrap-only sources used to populate a fresh database — see [Local database / reset](#local-database--reset) below.
 
@@ -21,7 +21,12 @@ PORT=4200 npm run start:server
 
 ## Smoke tests
 
-Browser-driven smoke tests live in [`smoke/`](../smoke/) and cover the local backend plus the admin page UI. They use Playwright and an isolated in-memory SQLite database per test — `server/salvare.db` is never opened or modified. The Chrome extension is **not** covered in this milestone.
+Browser-driven smoke tests live in [`smoke/`](../smoke/) and cover the local backend, the admin page UI, and the Chrome extension on the local React checkout. They use Playwright and isolated in-memory or temporary SQLite databases per test — `server/salvare.db` is never opened or modified. Any temporary on-disk DB used by smoke runs lives at `smoke/salvare.db` and is gitignored — do not commit it.
+
+Three suites:
+
+- `smoke/*.smoke.ts` — backend + admin UI (no extension, no Vite).
+- `smoke/extension/*.smoke.ts` — Chrome extension end-to-end on the local React checkout (see [Extension smoke tests](#extension-smoke-tests) below).
 
 One-time setup (downloads the Chromium browser binary used by Playwright):
 
@@ -29,16 +34,13 @@ One-time setup (downloads the Chromium browser binary used by Playwright):
 npx playwright install chromium
 ```
 
-Run the smoke suite:
+Run the suites:
 
 ```bash
-npm run test:smoke
-```
-
-Run unit tests + smoke together:
-
-```bash
-npm run test:all
+npm run test:smoke              # backend + admin UI only (fast)
+npm run test:smoke:extension    # Chrome extension on the local React checkout
+npm run test:smoke:all          # both smoke projects
+npm run test:all                # unit tests + all smoke
 ```
 
 What the smoke suite covers:
