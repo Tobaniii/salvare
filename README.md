@@ -153,6 +153,7 @@ A local development backend lives in `server/`. The extension's `couponProvider.
 - **v0.19.0** — Demo/portfolio documentation (`docs/DEMO.md`); no runtime changes.
 - **v0.20.0** — Local-first beta release checkpoint: SQLite persistence, admin UI, smoke-tested Chrome extension, import/export/backup/reset CLIs, profile diagnostics, and polished popup messaging. No scraping or external coupon discovery.
 - **v0.21.0** — Extension popup shows live "Testing N of M…" progress while coupons are being tried. Additive `SALVARE_COUPON_PROGRESS` broadcast with per-run id; final response shape unchanged.
+- **v0.22.0** — Local deterministic checkout fixtures (`public/fixtures/*.html`) covering alternate coupon input, alternate apply button text, and missing input/button/total. Pure DOM scan helpers extracted into `extension/checkoutScan.ts` and unit-tested under `happy-dom`; one minimal alt-coupon support-check smoke added.
 
 ## Current limitations
 

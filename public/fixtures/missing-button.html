@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Salvare fixture — missing apply button</title>
+  </head>
+  <body>
+    <!--
+      Local Salvare test fixture (not a real checkout).
+      Has a coupon input and a total but no apply button.
+      Expected diagnostic reason: apply_button_missing.
+    -->
+    <main>
+      <h1>Fixture checkout — missing apply button</h1>
+
+      <section>
+        <label for="coupon">Coupon</label>
+        <input id="coupon" name="coupon" type="text" />
+      </section>
+
+      <section>
+        <div>Subtotal</div>
+        <div>$50.00</div>
+        <div>Total</div>
+        <div>$55.00</div>
+      </section>
+    </main>
+  </body>
+</html>

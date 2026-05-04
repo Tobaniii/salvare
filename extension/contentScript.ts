@@ -6,11 +6,9 @@ import { fetchCandidateCodes } from "./couponProvider";
 import { reportCouponResult } from "./resultReporter";
 import { extractMoneyText, parseMoneyToCents } from "./moneyParsing";
 import {
-  buttonAttrsMatchApplyKeywords,
-  inputAttrsMatchCouponKeywords,
-  readApplyButtonAttrs,
-  readCouponInputAttrs,
-} from "./selectors";
+  findApplyButtons as scanFindApplyButtons,
+  findCouponInputs as scanFindCouponInputs,
+} from "./checkoutScan";
 import {
   deriveSupportReason,
   SUPPORT_REASON,
@@ -195,20 +193,11 @@ function findPossibleTotalText(profile?: StoreProfile | null): string | null {
 }
 
 function findCouponInputs(): HTMLInputElement[] {
-  const inputs = Array.from(document.querySelectorAll("input"));
-  return inputs.filter((input) =>
-    inputAttrsMatchCouponKeywords(readCouponInputAttrs(input)),
-  );
+  return scanFindCouponInputs(document);
 }
 
 function findApplyButtons(): HTMLElement[] {
-  const elements = Array.from(
-    document.querySelectorAll("button, input[type='submit'], input[type='button']")
-  ) as HTMLElement[];
-
-  return elements.filter((element) =>
-    buttonAttrsMatchApplyKeywords(readApplyButtonAttrs(element)),
-  );
+  return scanFindApplyButtons(document);
 }
 
 function findCouponInputForProfile(

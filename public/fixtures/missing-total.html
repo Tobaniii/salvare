@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Salvare fixture — missing total</title>
+  </head>
+  <body>
+    <!--
+      Local Salvare test fixture (not a real checkout).
+      Has a coupon input and an apply button but no order total.
+      Expected diagnostic reason: total_missing.
+    -->
+    <main>
+      <h1>Fixture checkout — missing total</h1>
+
+      <section>
+        <label for="coupon">Coupon</label>
+        <input id="coupon" name="coupon" type="text" />
+        <button type="button">Apply</button>
+      </section>
+    </main>
+  </body>
+</html>

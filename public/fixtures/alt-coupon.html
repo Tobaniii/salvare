@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Salvare fixture — alt coupon input</title>
+  </head>
+  <body>
+    <!--
+      Local Salvare test fixture (not a real checkout).
+      Exercises selector fallback against an alternate coupon input
+      (name="discount_code", placeholder="Promo code") and a default
+      "Apply" button.
+    -->
+    <main>
+      <h1>Fixture checkout — alternate coupon input</h1>
+
+      <section>
+        <label for="discount_code">Promo code</label>
+        <input
+          id="discount_code"
+          name="discount_code"
+          type="text"
+          placeholder="Promo code"
+        />
+        <button type="button">Apply</button>
+      </section>
+
+      <section>
+        <div>Subtotal</div>
+        <div>$40.00</div>
+        <div>Total</div>
+        <div>$42.00</div>
+      </section>
+    </main>
+  </body>
+</html>

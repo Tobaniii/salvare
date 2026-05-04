@@ -1,6 +1,7 @@
 import { test, expect, openPopup } from "./fixtures";
 
 const CHECKOUT_URL = "http://localhost:5173";
+const ALT_COUPON_FIXTURE_URL = "http://localhost:5173/fixtures/alt-coupon.html";
 // data: URLs don't match the extension's content_script `<all_urls>` filter,
 // so no content script is injected — the popup's sendMessage fails and the
 // UNSUPPORTED_FALLBACK message is shown. That's exactly the unsupported UX.
@@ -68,6 +69,30 @@ test.describe("Salvare extension on the local React checkout", () => {
     expect(
       body.results.some((r: { success: boolean }) => r.success === true),
     ).toBe(true);
+  });
+
+  test("popup support check works against the alt-coupon static fixture", async ({
+    ext,
+  }) => {
+    // Static fixture page (no apply behaviour wired up). We only exercise the
+    // support-check path here — Find Best Coupon is covered by the default
+    // React-checkout test above.
+    const checkout = await ext.context.newPage();
+    await checkout.goto(ALT_COUPON_FIXTURE_URL);
+    await expect(
+      checkout.getByRole("heading", {
+        name: "Fixture checkout — alternate coupon input",
+      }),
+    ).toBeVisible();
+
+    const popup = await openPopup(ext, ALT_COUPON_FIXTURE_URL);
+
+    await expect(popup.locator("#status")).toContainText("Store supported", {
+      timeout: 15_000,
+    });
+    await expect(popup.locator("#status")).toContainText(
+      "Ready to test coupons.",
+    );
   });
 
   test("popup shows the unsupported message on a non-profiled page", async ({
