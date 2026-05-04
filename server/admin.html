@@ -215,6 +215,79 @@
       #export-status.ok {
         color: #166534;
       }
+      .import-bar {
+        border: 1px solid #e2e2e2;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 16px;
+        background: #fafafa;
+      }
+      .import-bar h2 {
+        margin: 0 0 8px;
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #555;
+      }
+      .import-block {
+        border: 1px solid #e2e2e2;
+        border-radius: 6px;
+        padding: 10px 12px;
+        margin-top: 8px;
+        background: #fff;
+      }
+      .import-block + .import-block {
+        margin-top: 12px;
+      }
+      .import-block h3 {
+        margin: 0 0 6px;
+        font-size: 13px;
+      }
+      .import-block .import-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-bottom: 6px;
+      }
+      .import-block input[type="text"] {
+        flex: 1 1 160px;
+      }
+      .import-block button {
+        margin: 0;
+      }
+      .import-block button.secondary {
+        background: #6b7280;
+      }
+      .import-block button:disabled {
+        background: #9ca3af;
+        cursor: not-allowed;
+      }
+      .import-block .import-summary {
+        font-size: 12px;
+        color: #444;
+        background: #f1f5f9;
+        border-radius: 6px;
+        padding: 6px 8px;
+        margin-top: 4px;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .import-block .import-status {
+        font-size: 13px;
+        margin-top: 4px;
+        min-height: 18px;
+      }
+      .import-block .import-status.error {
+        color: #b91c1c;
+      }
+      .import-block .import-status.ok {
+        color: #166534;
+      }
+      .import-confirm {
+        font-size: 12px;
+        color: #555;
+      }
       #auth-banner {
         display: none;
         border: 1px solid #fca5a5;
@@ -292,11 +365,50 @@
         </button>
       </div>
       <div id="export-status"></div>
+    </section>
+
+    <section class="import-bar" aria-label="Import data">
+      <h2>Import data</h2>
       <p id="import-note" class="domain-empty">
-        Import is currently CLI-only via <code>npm run db:import</code>. Preview
-        endpoints (<code>POST /admin/import/preview/{coupons,results}</code>)
-        exist for a future browser import UI.
+        Preview a previously exported JSON file, then type
+        <code>IMPORT</code> to confirm before applying. Apply replaces data
+        for the imported domains only. Reset is CLI-only via
+        <code>npm run db:reset</code>.
       </p>
+
+      <div class="import-block" id="import-coupons">
+        <h3>Coupons export JSON</h3>
+        <div class="import-row">
+          <input id="import-coupons-file" type="file" accept="application/json,.json" />
+          <button id="import-coupons-preview" type="button">Preview</button>
+        </div>
+        <div id="import-coupons-summary" class="import-summary" hidden></div>
+        <div class="import-row">
+          <label class="import-confirm" for="import-coupons-confirm">
+            Type <strong>IMPORT</strong> to enable Apply (replaces codes for these domains):
+          </label>
+          <input id="import-coupons-confirm" type="text" autocomplete="off" placeholder="IMPORT" />
+          <button id="import-coupons-apply" type="button" disabled>Apply import</button>
+        </div>
+        <div id="import-coupons-status" class="import-status"></div>
+      </div>
+
+      <div class="import-block" id="import-results">
+        <h3>Result history export JSON</h3>
+        <div class="import-row">
+          <input id="import-results-file" type="file" accept="application/json,.json" />
+          <button id="import-results-preview" type="button">Preview</button>
+        </div>
+        <div id="import-results-summary" class="import-summary" hidden></div>
+        <div class="import-row">
+          <label class="import-confirm" for="import-results-confirm">
+            Type <strong>IMPORT</strong> to enable Apply (replaces history for these domains):
+          </label>
+          <input id="import-results-confirm" type="text" autocomplete="off" placeholder="IMPORT" />
+          <button id="import-results-apply" type="button" disabled>Apply import</button>
+        </div>
+        <div id="import-results-status" class="import-status"></div>
+      </div>
     </section>
 
     <div id="auth-banner" role="alert">
@@ -323,8 +435,10 @@
       <code>POST /admin/coupons</code>,
       <code>DELETE /admin/coupons</code>,
       <code>GET /admin/coupon-stats</code>,
-      <code>GET /admin/export/coupons</code>, and
-      <code>GET /admin/export/results</code>.
+      <code>GET /admin/export/coupons</code>,
+      <code>GET /admin/export/results</code>,
+      <code>POST /admin/import/preview/{coupons,results}</code>, and
+      <code>POST /admin/import/apply/{coupons,results}</code>.
     </footer>
 
     <script>
@@ -777,6 +891,248 @@
           "/admin/export/results",
           "salvare-results-export.json",
         );
+      });
+
+      function readFileAsText(file) {
+        return new Promise(function (resolve, reject) {
+          var reader = new FileReader();
+          reader.onerror = function () {
+            reject(new Error("could not read file"));
+          };
+          reader.onload = function () {
+            resolve(typeof reader.result === "string" ? reader.result : "");
+          };
+          reader.readAsText(file);
+        });
+      }
+
+      function setupImportBlock(opts) {
+        var fileInput = document.getElementById(opts.fileId);
+        var previewBtn = document.getElementById(opts.previewBtnId);
+        var summaryEl = document.getElementById(opts.summaryId);
+        var confirmInput = document.getElementById(opts.confirmId);
+        var applyBtn = document.getElementById(opts.applyBtnId);
+        var statusEl = document.getElementById(opts.statusId);
+
+        var rawText = null;
+        var previewOk = false;
+
+        function setStatus(message, kind) {
+          statusEl.textContent = message || "";
+          statusEl.className = "import-status" + (kind ? " " + kind : "");
+        }
+
+        function clearSummary() {
+          summaryEl.textContent = "";
+          summaryEl.hidden = true;
+        }
+
+        function refreshApplyEnabled() {
+          var typed = confirmInput.value.trim() === "IMPORT";
+          applyBtn.disabled = !(previewOk && rawText !== null && typed);
+        }
+
+        function resetBlock() {
+          rawText = null;
+          previewOk = false;
+          fileInput.value = "";
+          confirmInput.value = "";
+          clearSummary();
+          refreshApplyEnabled();
+        }
+
+        function describeSummary(body) {
+          if (body && body.type === "coupons") {
+            var lines = [
+              "Type: coupons",
+              "Domains: " + body.domains,
+              "Codes: " + body.codes,
+            ];
+            if (Array.isArray(body.domainNames)) {
+              lines.push(
+                "Domain names" +
+                  (body.domainNamesTruncated ? " (truncated)" : "") +
+                  ": " +
+                  body.domainNames.join(", "),
+              );
+            }
+            return lines.join("\n");
+          }
+          if (body && body.type === "results") {
+            var rlines = [
+              "Type: results",
+              "Records: " + body.records,
+              "Domains: " + body.domains,
+            ];
+            if (Array.isArray(body.domainNames)) {
+              rlines.push(
+                "Domain names" +
+                  (body.domainNamesTruncated ? " (truncated)" : "") +
+                  ": " +
+                  body.domainNames.join(", "),
+              );
+            }
+            return rlines.join("\n");
+          }
+          return "Preview ok.";
+        }
+
+        fileInput.addEventListener("change", function () {
+          rawText = null;
+          previewOk = false;
+          confirmInput.value = "";
+          clearSummary();
+          setStatus("");
+          refreshApplyEnabled();
+        });
+
+        confirmInput.addEventListener("input", refreshApplyEnabled);
+
+        previewBtn.addEventListener("click", function () {
+          var file =
+            fileInput.files && fileInput.files.length > 0
+              ? fileInput.files[0]
+              : null;
+          if (!file) {
+            setStatus("Choose a JSON file before previewing.", "error");
+            return;
+          }
+          previewOk = false;
+          refreshApplyEnabled();
+          setStatus("Previewing…");
+          clearSummary();
+          readFileAsText(file)
+            .then(function (text) {
+              rawText = text;
+              return fetch(opts.previewPath, {
+                method: "POST",
+                headers: Object.assign(
+                  { "Content-Type": "application/json" },
+                  authHeaders(),
+                ),
+                body: text,
+              });
+            })
+            .then(function (r) {
+              if (r.status === 401) {
+                setAuthBannerVisible(true);
+                setStatus("Preview failed: unauthorized.", "error");
+                rawText = null;
+                refreshApplyEnabled();
+                return null;
+              }
+              return r.json().then(function (body) {
+                if (!r.ok || !body || body.ok === false) {
+                  setStatus(
+                    "Preview failed: " +
+                      (body && body.error
+                        ? body.error
+                        : "HTTP " + r.status),
+                    "error",
+                  );
+                  rawText = null;
+                  refreshApplyEnabled();
+                  return null;
+                }
+                summaryEl.textContent = describeSummary(body);
+                summaryEl.hidden = false;
+                previewOk = true;
+                setStatus("Preview ok. Type IMPORT and click Apply.", "ok");
+                refreshApplyEnabled();
+                return null;
+              });
+            })
+            .catch(function (err) {
+              setStatus("Preview failed: " + err.message, "error");
+              rawText = null;
+              previewOk = false;
+              refreshApplyEnabled();
+            });
+        });
+
+        applyBtn.addEventListener("click", function () {
+          if (rawText === null || !previewOk) return;
+          if (confirmInput.value.trim() !== "IMPORT") return;
+          applyBtn.disabled = true;
+          setStatus("Applying…");
+          fetch(opts.applyPath, {
+            method: "POST",
+            headers: Object.assign(
+              { "Content-Type": "application/json" },
+              authHeaders(),
+            ),
+            body: rawText,
+          })
+            .then(function (r) {
+              if (r.status === 401) {
+                setAuthBannerVisible(true);
+                setStatus("Apply failed: unauthorized.", "error");
+                refreshApplyEnabled();
+                return null;
+              }
+              return r.json().then(function (body) {
+                if (!r.ok || !body || body.ok === false) {
+                  setStatus(
+                    "Apply failed: " +
+                      (body && body.error
+                        ? body.error
+                        : "HTTP " + r.status),
+                    "error",
+                  );
+                  refreshApplyEnabled();
+                  return null;
+                }
+                var msg;
+                if (body.type === "coupons") {
+                  msg =
+                    "Imported coupons: " +
+                    body.domainsImported +
+                    " domain(s), " +
+                    body.codesImported +
+                    " code(s).";
+                } else if (body.type === "results") {
+                  msg =
+                    "Imported results: " +
+                    body.recordsImported +
+                    " record(s) across " +
+                    body.domainsReplaced +
+                    " domain(s).";
+                } else {
+                  msg = "Import applied.";
+                }
+                resetBlock();
+                setStatus(msg, "ok");
+                loadCoupons();
+                return null;
+              });
+            })
+            .catch(function (err) {
+              setStatus("Apply failed: " + err.message, "error");
+              refreshApplyEnabled();
+            });
+        });
+      }
+
+      setupImportBlock({
+        fileId: "import-coupons-file",
+        previewBtnId: "import-coupons-preview",
+        summaryId: "import-coupons-summary",
+        confirmId: "import-coupons-confirm",
+        applyBtnId: "import-coupons-apply",
+        statusId: "import-coupons-status",
+        previewPath: "/admin/import/preview/coupons",
+        applyPath: "/admin/import/apply/coupons",
+      });
+
+      setupImportBlock({
+        fileId: "import-results-file",
+        previewBtnId: "import-results-preview",
+        summaryId: "import-results-summary",
+        confirmId: "import-results-confirm",
+        applyBtnId: "import-results-apply",
+        statusId: "import-results-status",
+        previewPath: "/admin/import/preview/results",
+        applyPath: "/admin/import/apply/results",
       });
 
       refreshTokenStatusFromStorage();

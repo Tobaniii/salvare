@@ -28,6 +28,8 @@ import {
 } from "./db-results";
 import { buildExportPayloads } from "./db-maintenance";
 import {
+  importCouponsExport,
+  importResultsExport,
   parseCouponsExport,
   parseResultsExport,
   summarizeCouponsPreview,
@@ -221,6 +223,62 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
         return;
       }
       sendJson(res, 200, summarizeResultsPreview(parsed.value));
+      return;
+    }
+
+    if (
+      req.method === "POST" &&
+      url.pathname === "/admin/import/apply/coupons"
+    ) {
+      if (!requireAuth(req, res)) return;
+      let body: unknown;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, { ok: false, error: "invalid import payload" });
+        return;
+      }
+      const parsed = parseCouponsExport(body);
+      if (!parsed.ok) {
+        console.warn("Salvare import apply rejected coupons payload");
+        sendJson(res, 400, { ok: false, error: "invalid import payload" });
+        return;
+      }
+      const stats = importCouponsExport(db, parsed.value);
+      sendJson(res, 200, {
+        ok: true,
+        type: "coupons",
+        domainsImported: Object.keys(parsed.value).length,
+        codesImported: stats.codesImported,
+      });
+      return;
+    }
+
+    if (
+      req.method === "POST" &&
+      url.pathname === "/admin/import/apply/results"
+    ) {
+      if (!requireAuth(req, res)) return;
+      let body: unknown;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, { ok: false, error: "invalid import payload" });
+        return;
+      }
+      const parsed = parseResultsExport(body);
+      if (!parsed.ok) {
+        console.warn("Salvare import apply rejected results payload");
+        sendJson(res, 400, { ok: false, error: "invalid import payload" });
+        return;
+      }
+      const stats = importResultsExport(db, parsed.value);
+      sendJson(res, 200, {
+        ok: true,
+        type: "results",
+        recordsImported: stats.resultsImported,
+        domainsReplaced: stats.domainsReplaced,
+      });
       return;
     }
 

@@ -105,6 +105,24 @@ const PROTECTED_ENDPOINTS: Array<{
       body: JSON.stringify({ results: [] }),
     },
   },
+  {
+    name: "POST /admin/import/apply/coupons",
+    path: "/admin/import/apply/coupons",
+    init: {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ "apply-auth.com": ["AA1"] }),
+    },
+  },
+  {
+    name: "POST /admin/import/apply/results",
+    path: "/admin/import/apply/results",
+    init: {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ results: [] }),
+    },
+  },
 ];
 
 describe("auth disabled (no SALVARE_ADMIN_TOKEN)", () => {

@@ -51,10 +51,27 @@ describe("getAdminHtml", () => {
     expect(html).toContain("salvare-results-export.json");
   });
 
-  it("includes the import-CLI-only note pointing at preview endpoints", () => {
+  it("includes the import section with file inputs, preview/apply buttons, and IMPORT confirmation controls", () => {
     const html = getAdminHtml();
-    expect(html).toContain('id="import-note"');
-    expect(html).toContain("npm run db:import");
-    expect(html).toContain("/admin/import/preview/");
+    expect(html).toContain("Import data");
+    expect(html).toContain('id="import-coupons-file"');
+    expect(html).toContain('id="import-coupons-preview"');
+    expect(html).toContain('id="import-coupons-confirm"');
+    expect(html).toContain('id="import-coupons-apply"');
+    expect(html).toContain('id="import-results-file"');
+    expect(html).toContain('id="import-results-preview"');
+    expect(html).toContain('id="import-results-confirm"');
+    expect(html).toContain('id="import-results-apply"');
+    expect(html).toContain("/admin/import/preview/coupons");
+    expect(html).toContain("/admin/import/preview/results");
+    expect(html).toContain("/admin/import/apply/coupons");
+    expect(html).toContain("/admin/import/apply/results");
+    expect(html).toContain("Type <strong>IMPORT</strong>");
+  });
+
+  it("does not include reset UI", () => {
+    const html = getAdminHtml();
+    expect(html).not.toContain('id="admin-reset"');
+    expect(html).not.toContain("/admin/reset");
   });
 });

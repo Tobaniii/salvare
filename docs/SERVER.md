@@ -178,6 +178,8 @@ The startup log line will read `Salvare admin auth: ENABLED`. The server never l
 - `GET /admin/export/results`
 - `POST /admin/import/preview/coupons`
 - `POST /admin/import/preview/results`
+- `POST /admin/import/apply/coupons`
+- `POST /admin/import/apply/results`
 - `DELETE /results`
 
 **Unprotected** (open even when the env var is set, so the unmodified extension keeps working, the admin page can load and prompt for a token, and local read access is preserved):
@@ -232,7 +234,7 @@ The admin shell includes a **Data export** section with two buttons: **Download 
 
 In token mode the buttons are visible before any token is entered, but downloads only succeed once a valid token has been saved via the **Admin token** bar — a missing/wrong token surfaces the existing unauthorized banner and a "Download failed: unauthorized." message in the export status line, with no crash.
 
-Browser-driven export covers the read-only download path. Destructive operations — `db:reset` and `db:import` — remain CLI-only by design so an open browser tab on a shared machine cannot wipe or overwrite local data with one click. The split is:
+Browser-driven export covers the read-only download path. Reset remains CLI-only by design so an open browser tab on a shared machine cannot wipe local data with one click. Import gained a browser path in v0.14.0 with a forced preview + typed-confirmation gate; the CLI path stays available. The split is:
 
 | Operation                 | UI (browser)                       | CLI                                       |
 | ------------------------- | ---------------------------------- | ----------------------------------------- |
@@ -240,8 +242,8 @@ Browser-driven export covers the read-only download path. Destructive operations
 | Download results JSON     | `GET /admin/export/results` button | `npm run db:export` writes to `server/exports/` |
 | Raw `.db` snapshot        | —                                  | `npm run db:backup`                       |
 | Reset / re-bootstrap DB   | — (CLI-only for safety)            | `npm run db:reset`                        |
-| Import previous export    | — (apply remains CLI-only for safety) | `npm run db:import -- --coupons … [--results …]` |
 | Validate import payload (no apply) | `POST /admin/import/preview/{coupons,results}` | implicit — `db:import` validates before apply |
+| Apply previous export     | **Import data** section: file → Preview → type IMPORT → Apply (`POST /admin/import/apply/{coupons,results}`) | `npm run db:import -- --coupons … [--results …]` |
 
 ### Admin import preview endpoints
 
@@ -282,7 +284,52 @@ Invalid input — wrong shape, missing fields, unparseable JSON — returns `400
 
 Preview responses contain only the summary above. They never include the admin token, DB path, request headers, environment variables, full coupon code lists, full result records, or any unknown fields the caller smuggled in (the validator drops unknown keys before the summarizer ever sees them).
 
-Actual import remains **CLI-only** via `npm run db:import` for now. The preview endpoints exist so a future browser import UI can show users exactly what they're about to apply before any apply path ships.
+### Admin import apply endpoints
+
+Two write endpoints accept the same exported JSON payloads validated by the preview endpoints, run them through the same strict parsers, and apply them inside a single `db.transaction(...)` so a failed insert rolls back rather than leaving a half-imported state. Apply reuses the same helpers as the `db:import` CLI (`importCouponsExport`, `importResultsExport`), so CLI and browser imports share one source of truth.
+
+- `POST /admin/import/apply/coupons` — body = exported coupons JSON. **Replaces** the candidate-code list for every domain in the payload. Domains not present in the payload are left alone.
+- `POST /admin/import/apply/results` — body = `{ "results": [...] }` envelope. **Replaces** the result history for every domain present in the payload (per-domain wipe-and-reinsert). Domains not present in the payload are left alone.
+
+Both endpoints are protected when `SALVARE_ADMIN_TOKEN` is configured, exactly like the preview/export endpoints.
+
+Successful response shapes (concise, fixed keys):
+
+```json
+{
+  "ok": true,
+  "type": "coupons",
+  "domainsImported": 2,
+  "codesImported": 5
+}
+```
+
+```json
+{
+  "ok": true,
+  "type": "results",
+  "recordsImported": 7,
+  "domainsReplaced": 2
+}
+```
+
+Invalid input — wrong shape, missing fields, unparseable JSON — returns `400 { "ok": false, "error": "invalid import payload" }`. The error body is a fixed string; raw payload contents are never echoed back. Server-side logging is a single warning line (no payload dump).
+
+Apply responses contain only the four fields above. They never include the admin token, DB path, request headers, environment variables, full coupon code lists, full result records, or any unknown fields the caller smuggled in.
+
+Idempotency follows the existing `db:import` semantics: re-applying the same payload yields the same DB state. **Reset remains CLI-only** via `npm run db:reset` — there is no admin UI control for wiping the database. The recommended safety flow is still _backup first_ (`npm run db:backup`) before applying an import in any environment with non-trivial local data.
+
+### Admin UI data import
+
+The admin shell includes an **Import data** section with two independent blocks: **Coupons export JSON** and **Result history export JSON**. Each block follows the same five-step gate:
+
+1. Select a JSON file via the block's file input. Selecting a new file always clears any prior preview and confirmation state.
+2. Click **Preview**. The browser reads the file as text and `POST`s the raw body to the matching `/admin/import/preview/{coupons,results}` endpoint. On success the block shows a small summary (type, domain/record counts, sampled domain names) — exactly the same body the endpoint already returns. On failure the block shows a non-crashing error (`Preview failed: invalid import payload`, `Preview failed: unauthorized`, `Preview failed: HTTP 500`, etc.) and the Apply button stays disabled.
+3. Type the literal string `IMPORT` into the block's confirmation input. Apply only enables once both the preview has succeeded **and** the confirmation matches exactly. (Choice rationale: a typed confirmation is harder to misclick than a checkbox and matches the gravity of "replace data for these domains.")
+4. Click **Apply**. The browser `POST`s the exact same file text to `/admin/import/apply/{coupons,results}` with the stored token. On success the block shows a concise count summary (`Imported coupons: N domain(s), M code(s).` / `Imported results: N record(s) across M domain(s).`), then **clears the file input, the cached file text, the preview summary, and the confirmation field** so the block returns to its pristine state. The page also reloads the seeded-coupon list and the backend-status panel so any newly imported domains appear immediately.
+5. Apply failure (validation, auth, network) shows the failure cause in the block's status line; the file/preview/confirm state is preserved so the user can retry without re-uploading.
+
+Coupons and result-history imports are independent: previewing or applying one block has no effect on the other. There is **no auto-apply after preview**, **no drag-and-drop**, **no admin reset UI**, and the committed bootstrap JSON files (`server/coupons.seed.json`, `server/coupon-results.json`) are never mutated by any browser action.
 
 ### Using the admin UI in token mode
 
