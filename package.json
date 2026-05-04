@@ -1,7 +1,7 @@
 {
   "name": "salvare",
   "private": true,
-  "version": "0.23.0",
+  "version": "0.24.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -32,7 +32,13 @@
     "test:smoke": "playwright test --project=chromium",
     "test:smoke:extension": "npm run build:extension && npm run build:extension-harness && playwright test --project=extension",
     "test:smoke:all": "npm run test:smoke && npm run test:smoke:extension",
-    "test:all": "npm test -- --run && npm run test:smoke:all"
+    "test:all": "npm test -- --run && npm run test:smoke:all",
+    "verify:build": "npx tsc -b && npm run build:server && npm run build:extension",
+    "verify:unit": "npm test -- --run",
+    "verify:data": "npm run db:verify && npm run profiles:verify",
+    "verify:smoke": "npm run test:smoke",
+    "verify:extension": "npm run test:smoke:extension",
+    "verify:local": "npm run verify:build && npm run verify:unit && npm run verify:data && npm run verify:smoke"
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",

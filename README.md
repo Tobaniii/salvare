@@ -101,6 +101,23 @@ npm run test:all                # unit tests + all smoke tests
 
 Smoke tests cover the local backend and the admin page UI in Chromium with an isolated in-memory database; the Chrome extension is not covered. See [`docs/SERVER.md`](docs/SERVER.md) for details.
 
+## Verification
+
+Salvare groups its checks into `verify:*` script aliases so you can pick the right level of confidence without memorizing every underlying command. None of the aliases mutate `server/salvare.db`.
+
+```bash
+npm run verify:build       # tsc -b + build:server + build:extension
+npm run verify:unit        # vitest, single run
+npm run verify:data        # db:verify + profiles:verify (read-only)
+npm run verify:smoke       # backend + admin Playwright smoke
+npm run verify:extension   # extension smoke (binds port 4123)
+npm run verify:local       # build + unit + data + backend smoke
+```
+
+`verify:local` deliberately omits extension smoke because the extension suite binds port 4123 and conflicts with a running `npm run start:server`. Run `npm run verify:extension` separately when 4123 is free. `db:init`, `db:bootstrap`, and `db:reset` are intentionally excluded from every `verify:*` alias because they mutate or delete local DB state.
+
+For the full guide — what each layer covers, what mutates state, prerequisites, and common failures — see [`docs/TESTING.md`](docs/TESTING.md).
+
 ## Build and load the Chrome extension
 
 ```bash
@@ -155,6 +172,7 @@ A local development backend lives in `server/`. The extension's `couponProvider.
 - **v0.21.0** — Extension popup shows live "Testing N of M…" progress while coupons are being tried. Additive `SALVARE_COUPON_PROGRESS` broadcast with per-run id; final response shape unchanged.
 - **v0.22.0** — Local deterministic checkout fixtures (`public/fixtures/*.html`) covering alternate coupon input, alternate apply button text, and missing input/button/total. Pure DOM scan helpers extracted into `extension/checkoutScan.ts` and unit-tested under `happy-dom`; one minimal alt-coupon support-check smoke added.
 - **v0.23.0** — Profile verification helpers and `npm run profiles:verify` CLI for structural, uniqueness, selector-sanity, and local-fixture compatibility checks. Read-only; no changes to profile runtime data, popup wording, content-script behavior, backend API, admin UI, or SQLite schema.
+- **v0.24.0** — Verification ergonomics: `verify:build`, `verify:unit`, `verify:data`, `verify:smoke`, `verify:extension`, and `verify:local` script aliases plus a dedicated [`docs/TESTING.md`](docs/TESTING.md) guide. Optional GitHub Actions workflow (`.github/workflows/ci.yml`) runs unit tests, type checks, server/extension builds, and `profiles:verify` only — no browser smoke, no port-4123 service, no secrets. No runtime changes.
 
 ## Current limitations
 

@@ -167,6 +167,7 @@ Smoke tests use isolated databases and never touch your real `server/salvare.db`
 | Extension popup | On a supported checkout, the popup shows readiness; **Find Best Coupon** reports a winning code, final total, and savings, or reports no improvement. |
 | Result reporting | After a test, `GET /results?domain=<host>` includes the new outcomes. |
 | Smoke coverage | `npm run test:smoke:all` passes locally. |
+| Verify aliases | `npm run verify:build`, `npm run verify:unit`, `npm run verify:data`, `npm run verify:smoke`, `npm run verify:extension`, and `npm run verify:local` run the corresponding non-mutating layers. See [`docs/TESTING.md`](TESTING.md). |
 
 ---
 
