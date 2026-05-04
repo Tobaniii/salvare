@@ -66,6 +66,7 @@ npx playwright install chromium
 ```bash
 npm run db:bootstrap   # creates server/salvare.db and imports seed JSON
 npm run db:verify      # read-only schema check; reports schema_meta version
+npm run profiles:verify # validates extension store profiles + local fixtures
 ```
 
 `server/salvare.db` is local and gitignored. Bootstrap is idempotent for a fresh DB; rerun `npm run db:reset` if you want to wipe and re-seed from scratch.
@@ -157,6 +158,7 @@ Smoke tests use isolated databases and never touch your real `server/salvare.db`
 |---|---|
 | Backend up | `curl http://localhost:4123/health` returns `{ service, version, db: { ... }, auth: { ... } }`. |
 | Schema correct | `npm run db:verify` reports the current `schema_meta` version with no errors. |
+| Profiles valid | `npm run profiles:verify` reports per-profile checks and local-fixture compatibility with no failures. |
 | Coupons endpoint | `curl 'http://localhost:4123/coupons?domain=localhost'` returns candidate codes (ranked by past results when history exists). |
 | Admin UI | Open `http://localhost:4123/admin`, confirm the status panel and the coupon list render. |
 | Admin token mode | Start the server with `SALVARE_ADMIN_TOKEN=secret`. Calls to `/admin/*` and destructive endpoints require `Authorization: Bearer secret`; the admin page prompts for it. |
