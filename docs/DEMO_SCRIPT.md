@@ -1,5 +1,7 @@
 # Salvare Demo Script
 
+> Short-form pitch script for live demos. For the full local-first walkthrough — fresh setup, admin/health/export-import flow, smoke tests, and troubleshooting — see [`docs/DEMO.md`](DEMO.md).
+
 ## 1. 30-second overview
 
 - Salvare is a Chrome extension and a small React + TypeScript engine that finds the best coupon for a shopping cart.

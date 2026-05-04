@@ -6,6 +6,8 @@ Salvare is a React + TypeScript app and a companion Chrome extension that finds 
 
 [Watch the Salvare demo](docs/assets/salvare-demo.mov)
 
+For a full local-first walkthrough — fresh setup, demo flow, admin/health/export-import, smoke tests, and troubleshooting — see [`docs/DEMO.md`](docs/DEMO.md).
+
 ## Preview
 
 ![App Screenshot](./src/assets/screenshot.png)
@@ -140,6 +142,15 @@ A local development backend lives in `server/`. The extension's `couponProvider.
 - **v0.8.0** — Chrome extension Playwright smoke tests covering the local React checkout flow (popup readiness → Find Best Coupon → result reporting). Shopify and WooCommerce profiles are still exercised manually.
 - **v0.9.0** — Startup configuration diagnostics and an unprotected `GET /health` readiness endpoint exposing coarse service/database/auth status.
 - **v0.10.0** — Admin page displays a backend status panel sourced from `GET /health` (service, version, schema/coupon/result presence, admin-token-configured flag).
+- **v0.11.0** — Local DB maintenance CLIs: `db:backup`, `db:export`, `db:reset`, `db:import`.
+- **v0.12.0** — Protected admin export endpoints and admin export download buttons.
+- **v0.13.0** — Protected admin import preview endpoints (read-only diff).
+- **v0.14.0** — Protected admin import apply endpoints and browser import UI with `Preview → type IMPORT → Apply` gate.
+- **v0.15.0** — Admin/export/import route handlers extracted out of `server/index.ts`.
+- **v0.16.0** — `schema_meta` versioning and read-only `db:verify` CLI.
+- **v0.17.0** — Profile diagnostics and selector helpers for extension support detection.
+- **v0.18.0** — Polished extension popup messages using diagnostic reasons.
+- **v0.19.0** — Demo/portfolio documentation (`docs/DEMO.md`); no runtime changes.
 
 ## Current limitations
 
