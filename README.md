@@ -1,12 +1,18 @@
 # Salvare
 
-Salvare is a React + TypeScript app and a companion Chrome extension that finds the best coupon for a shopping cart. The web app demonstrates the underlying engine on a local test checkout; the extension applies the same idea to real merchant checkouts by testing candidate codes and keeping the one that actually lowers the total.
+Salvare is a local-first coupon engine. It tests known candidate coupon codes directly against a real checkout and keeps whichever code produces the lowest verified final total. The project ships as a Chrome extension that runs on supported merchant checkouts, plus a small local Node + TypeScript backend, a SQLite store, an admin UI, and a local React demo checkout used for development and portfolio review.
+
+The product thesis is simple: coupon claims are unreliable, so Salvare does not trust them. Every candidate code is applied on the live checkout, the order total is re-read after the discount settles, and only codes that strictly lower the baseline total are counted as wins. Whatever code yields the lowest verified final total is the code the user keeps. Discount banners, "savings" rows, and advertised percentages are not used as proof of value — the checkout's grand total is.
+
+Today's scope is deliberately narrow and local. Candidate codes come from three sources Salvare already controls: hand-curated seed JSON, admin-managed entries persisted in SQLite, and previously exported snapshots imported back through the admin UI. The Chrome extension supports the local React checkout out of the box and ships profiles for a Shopify development checkout and a WooCommerce LocalWP test site. A backend, an admin page, an unprotected `GET /health` readiness endpoint, optional bearer-token hardening, export/import/backup/reset/verify CLIs, and Playwright smoke suites round out the local toolchain.
+
+Salvare is intentionally **not** a hosted SaaS, **not** a multi-user product, **not** a production-auth system, and **not** a scraper. There is no external coupon discovery, no third-party API, no real-store automation by default, and no telemetry. Future direction is trusted/allowed source ingestion with provenance — API/feed adapters first, and allowlisted HTML adapters only later if permitted — never uncontrolled scraping.
+
+For a full local-first walkthrough — fresh setup, demo flow, admin/health/export-import, smoke tests, and troubleshooting — see [`docs/DEMO.md`](docs/DEMO.md). For the layered verification surface and which commands mutate state, see [`docs/TESTING.md`](docs/TESTING.md).
 
 ## Demo
 
 [Watch the Salvare demo](docs/assets/salvare-demo.mov)
-
-For a full local-first walkthrough — fresh setup, demo flow, admin/health/export-import, smoke tests, and troubleshooting — see [`docs/DEMO.md`](docs/DEMO.md).
 
 ## Preview
 
@@ -54,6 +60,39 @@ See [`docs/SERVER.md`](docs/SERVER.md), [`docs/SEED_DATA.md`](docs/SEED_DATA.md)
 
 ## Architecture
 
+### At a glance
+
+```
+                       ┌──────────────────────────┐
+                       │  Chrome extension        │
+                       │  popup + content script  │
+                       └────────────┬─────────────┘
+                                    │ HTTP (localhost:4123)
+                                    ▼
+   ┌────────────────────┐   ┌──────────────────────────┐   ┌───────────────────┐
+   │  Local React       │◀──│  Local Node + TS server  │──▶│  SQLite           │
+   │  demo checkout     │   │  /coupons /results       │   │  server/salvare.db │
+   │  (Vite, :5173)     │   │  /admin/* /health        │   │  (gitignored)     │
+   └────────────────────┘   └────────────┬─────────────┘   └───────────────────┘
+                                         │
+                              ┌──────────┴──────────┐
+                              ▼                     ▼
+                    ┌──────────────────┐   ┌────────────────────────┐
+                    │  Admin UI        │   │  Local CLIs            │
+                    │  /admin (HTML)   │   │  db:init / db:bootstrap│
+                    │  status panel,   │   │  db:backup / db:export │
+                    │  preview→IMPORT  │   │  db:import / db:reset  │
+                    │  →apply gate     │   │  db:verify             │
+                    └──────────────────┘   │  profiles:verify       │
+                                           └────────────────────────┘
+
+   Smoke coverage: Playwright suites under smoke/ exercise the backend,
+   the admin UI, and the extension on the local React checkout — each with
+   isolated in-memory or temporary SQLite state.
+```
+
+Everything in the diagram runs on the developer's machine. There is no hosted API, no third-party service, and no telemetry.
+
 ### Components
 
 - React demo app — local checkout for showcasing the engine ([src/App.tsx](src/App.tsx), [src/engine/couponEngine.ts](src/engine/couponEngine.ts)).
@@ -85,6 +124,16 @@ See [`docs/SERVER.md`](docs/SERVER.md), [`docs/SEED_DATA.md`](docs/SEED_DATA.md)
 - The backend is local development only; there is no hosted API.
 - No scraping or external coupon discovery is implemented.
 - The extension verifies every code directly on checkout — candidates are tested, not trusted.
+
+## Demo story
+
+A full reviewer-friendly walkthrough lives in [`docs/DEMO.md`](docs/DEMO.md). The condensed loop:
+
+1. Start the local backend (`npm run start:server`) and the local React checkout (`npm run dev`).
+2. Load the unpacked extension into Chrome and open the local checkout tab.
+3. Click the Salvare popup, confirm the readiness check, then click **Find Best Coupon** — the extension tests each known candidate code, applies the winner, and reports the final total and savings.
+4. Open `http://localhost:4123/admin` to inspect candidate codes, view the backend status panel sourced from `GET /health`, and edit seeded entries.
+5. Use the export, preview-gated import, backup, reset, and verify CLIs (and matching `verify:*` aliases) to manage the local SQLite store and confirm schema, profile, and smoke health without hitting any external service.
 
 ## Run the React app
 
@@ -146,10 +195,6 @@ Then in Chrome:
 6. Keep only codes that strictly beat the baseline total.
 7. Re-apply the winning code so the user lands on a checkout already showing the best price. The popup displays the best code, final total, and savings.
 
-## Backend/API readiness
-
-A local development backend lives in `server/`. The extension's `couponProvider.ts` calls `http://localhost:4123/coupons` first and falls back to mock candidate codes when the backend is unreachable, slow, or returns an unexpected shape. Everything is local — there is no hosted API, no scraping, and no third-party calls.
-
 ## Milestone status
 
 - **v0.6.0** — Runtime persistence moved to SQLite (`server/salvare.db`); JSON files in `server/` are now bootstrap-only sources.
@@ -173,9 +218,23 @@ A local development backend lives in `server/`. The extension's `couponProvider.
 - **v0.22.0** — Local deterministic checkout fixtures (`public/fixtures/*.html`) covering alternate coupon input, alternate apply button text, and missing input/button/total. Pure DOM scan helpers extracted into `extension/checkoutScan.ts` and unit-tested under `happy-dom`; one minimal alt-coupon support-check smoke added.
 - **v0.23.0** — Profile verification helpers and `npm run profiles:verify` CLI for structural, uniqueness, selector-sanity, and local-fixture compatibility checks. Read-only; no changes to profile runtime data, popup wording, content-script behavior, backend API, admin UI, or SQLite schema.
 - **v0.24.0** — Verification ergonomics: `verify:build`, `verify:unit`, `verify:data`, `verify:smoke`, `verify:extension`, and `verify:local` script aliases plus a dedicated [`docs/TESTING.md`](docs/TESTING.md) guide. Optional GitHub Actions workflow (`.github/workflows/ci.yml`) runs unit tests, type checks, server/extension builds, and `profiles:verify` only — no browser smoke, no port-4123 service, no secrets. No runtime changes.
+- **v0.25.0** — Portfolio release-candidate polish: rewritten README opening explaining the product thesis, current scope, and explicit non-goals; an at-a-glance architecture diagram; a condensed demo story; a refined limitations section paired with a trusted/allowed source ingestion future-direction roadmap; `SALVARE_VERSION` and `package.json` bumped to `0.25.0`. No runtime, API, schema, admin UI, or extension behavior changes.
 
-## Current limitations
+## Limitations and future direction
+
+### Current limitations
 
 - Candidate coupon codes are seeded by hand in [`server/coupons.seed.json`](server/coupons.seed.json) (imported into SQLite once on first run) and `extension/storeProfiles.ts`. After bootstrap, runtime additions/edits go through the admin UI and persist in `server/salvare.db`. The backend is local-only and there is no hosted coupon API or automated coupon discovery.
 - Store support depends on the selectors and keyword heuristics in the profile and content script. A new merchant generally needs a new profile entry, and possibly tuned selectors, before testing works reliably.
-- Result reporting and admin endpoints have no auth; they are intended for local development only.
+- The optional `SALVARE_ADMIN_TOKEN` is local hardening for a single-user developer machine. It is not production auth: there is no rate limiting, no token rotation, no TLS termination, and the public read endpoints stay open so the unmodified extension keeps working.
+- There is no multi-user system, no accounts, no payments, and no telemetry. Salvare is a single-user local tool by design.
+
+### Future direction
+
+Future Salvare work focuses on **trusted, allowed source ingestion with explicit provenance** — never uncontrolled scraping. The intended order is:
+
+1. **Source provenance metadata.** Every imported candidate code carries the source it came from, when it was ingested, and under what permission, so reviewers can audit and revoke a source.
+2. **API and feed adapters first.** Ingest from sources that publish coupons through a documented API or feed (partner programs, merchant-published JSON, allowlisted RSS/Atom). These are the lowest-risk surfaces and stay well clear of merchant terms-of-service issues.
+3. **Allowlisted HTML adapters only later, only if permitted.** If a source explicitly permits structured extraction, a narrowly scoped HTML adapter may be added under the same provenance and review gate. Adapters are opt-in per source and never enabled by default.
+
+Out-of-scope direction (explicitly not planned): broad scraping, harvesting from arbitrary merchant pages, hosted SaaS, multi-user accounts, real-store automation by default, or any flow that submits orders on a user's behalf.
