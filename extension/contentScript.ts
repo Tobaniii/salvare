@@ -977,6 +977,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         bestCode: best.code,
         totalCents: best.totalCents,
         savingsCents: best.baselineTotalCents - best.totalCents,
+        codesTested: codes.length,
       });
     })();
 
