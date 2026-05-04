@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import Database from "better-sqlite3";
-import { initSchema, openDatabase } from "./db";
+import { EXPECTED_SCHEMA_VERSION, initSchema, openDatabase } from "./db";
 
 function makeMemoryDb() {
   return openDatabase(":memory:");
@@ -114,5 +114,26 @@ describe("initSchema", () => {
     expect(() => initSchema(db)).not.toThrow();
     const tables = listTables(db);
     expect(tables.filter((t) => t === "stores")).toHaveLength(1);
+  });
+
+  it("creates schema_meta and stores the expected version", () => {
+    const db = makeMemoryDb();
+    const tables = listTables(db);
+    expect(tables).toContain("schema_meta");
+    const row = db
+      .prepare("SELECT value FROM schema_meta WHERE key = 'version'")
+      .get() as { value: string } | undefined;
+    expect(row?.value).toBe(EXPECTED_SCHEMA_VERSION);
+  });
+
+  it("schema_meta version upsert is idempotent", () => {
+    const db = makeMemoryDb();
+    initSchema(db);
+    initSchema(db);
+    const rows = db
+      .prepare("SELECT value FROM schema_meta WHERE key = 'version'")
+      .all() as Array<{ value: string }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].value).toBe(EXPECTED_SCHEMA_VERSION);
   });
 });

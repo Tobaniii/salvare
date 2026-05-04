@@ -424,6 +424,29 @@ Behavior:
 
 Always run `npm run db:backup` before `npm run db:import` if the target DB has data you care about — `db:import` is intentionally not auto-creating a backup. Export and import artifacts in `server/exports/` and `server/backups/` remain gitignored; do not commit them.
 
+#### Schema versioning and integrity verification
+
+The SQLite schema carries a small `schema_meta(key, value)` table populated by `initSchema`. The single `'version'` row records the expected schema version (currently `1`) and is upserted idempotently via `INSERT ... ON CONFLICT(key) DO UPDATE`, so existing databases are upgraded in place without data loss when the backend boots.
+
+```bash
+npm run db:verify     # read-only integrity check on the configured DB
+```
+
+`db:verify` honors `SALVARE_DB_PATH`, opens the DB read-mostly (it does not insert, update, or delete user data), and runs these checks:
+
+- `tables_present` — `stores`, `coupon_codes`, `coupon_results`, `schema_meta` all exist.
+- `schema_version` — `schema_meta.version` equals the expected schema version.
+- `foreign_keys` — `PRAGMA foreign_key_check` returns no offending rows.
+- `indexes_present` — `idx_coupon_results_store_code` and `idx_coupon_results_tested_at` exist.
+- `coupon_codes_orphans` — every `coupon_codes.store_id` resolves to an existing `stores` row.
+- `coupon_results_orphans` — every `coupon_results.store_id` resolves to an existing `stores` row.
+
+Warnings are reported separately and do not fail the run:
+
+- `duplicate_coupon_results` — count of `(store_id, code, tested_at, success, savings_cents, final_total_cents)` groups that appear more than once. Duplicates are tolerated by the current schema; this milestone reports them but does not deduplicate.
+
+Output prints the schema version, per-check `PASS`/`FAIL`, and a warning count. The CLI exits non-zero if any check fails and exits zero when only warnings are present. The verify result and CLI output never include coupon codes, result records, the database path, request headers, the admin token, or environment variable values.
+
 ## Endpoint
 
 ```

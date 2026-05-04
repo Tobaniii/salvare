@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 export type Db = Database.Database;
 
+export const EXPECTED_SCHEMA_VERSION = "1";
+
 const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS stores (
     id INTEGER PRIMARY KEY,
@@ -36,10 +38,19 @@ const SCHEMA_SQL = `
 
   CREATE INDEX IF NOT EXISTS idx_coupon_results_tested_at
     ON coupon_results(tested_at);
+
+  CREATE TABLE IF NOT EXISTS schema_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
 `;
 
 export function initSchema(db: Db): void {
   db.exec(SCHEMA_SQL);
+  db.prepare(
+    `INSERT INTO schema_meta (key, value) VALUES ('version', ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  ).run(EXPECTED_SCHEMA_VERSION);
 }
 
 export function openDatabase(path: string): Db {
