@@ -151,6 +151,7 @@ A local development backend lives in `server/`. The extension's `couponProvider.
 - **v0.17.0** — Profile diagnostics and selector helpers for extension support detection.
 - **v0.18.0** — Polished extension popup messages using diagnostic reasons.
 - **v0.19.0** — Demo/portfolio documentation (`docs/DEMO.md`); no runtime changes.
+- **v0.20.0** — Local-first beta release checkpoint: SQLite persistence, admin UI, smoke-tested Chrome extension, import/export/backup/reset CLIs, profile diagnostics, and polished popup messaging. No scraping or external coupon discovery.
 
 ## Current limitations
 
