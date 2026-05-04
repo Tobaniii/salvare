@@ -54,7 +54,7 @@ After editing:
 - Preserve backend API response shapes unless explicitly requested.
 - Preserve extension behavior unless the milestone explicitly targets extension behavior.
 - No real external store automation unless explicitly requested.
-- No scraping/source ingestion until source-policy/source-adapter milestones.
+- No scraping/source ingestion until source-policy/source-adapter milestones. Any source-ingestion or scraping-related work must review and comply with `docs/SOURCE_POLICY.md` before implementation.
 - Do not expose tokens, headers, env vars, DB paths, cookies, localStorage, DOM dumps, or raw stack traces.
 
 ## Milestone style
