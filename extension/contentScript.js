@@ -2,14 +2,17 @@
   // extension/storeProfiles.ts
   var STORE_PROFILES = [
     {
+      id: "localhost-react-cart",
       domain: "localhost",
       candidateCodes: ["SAVE10", "TAKE15", "FREESHIP"]
     },
     {
+      id: "wonderbly-com",
       domain: "www.wonderbly.com",
       candidateCodes: ["WELCOME10", "SAVE15", "FREESHIP"]
     },
     {
+      id: "shopify-test-store",
       domain: "salvare-test-store.myshopify.com",
       candidateCodes: ["WELCOME10", "SAVE15", "FREESHIP"],
       selectors: {
@@ -20,6 +23,7 @@
       }
     },
     {
+      id: "woo-test-local",
       domain: "salvare-woo-test.local",
       candidateCodes: ["WELCOME10", "TAKE20", "FREESHIP"],
       selectors: {
@@ -121,6 +125,76 @@
     const matches = text.match(MONEY_REGEX);
     if (!matches || matches.length === 0) return null;
     return matches[matches.length - 1];
+  }
+
+  // extension/selectors.ts
+  var COUPON_INPUT_KEYWORDS = [
+    "coupon",
+    "promo",
+    "discount",
+    "voucher"
+  ];
+  var APPLY_BUTTON_KEYWORDS = [
+    "apply",
+    "redeem",
+    "use code"
+  ];
+  function joinAttrs(parts) {
+    return parts.filter((p) => Boolean(p)).join(" ").toLowerCase();
+  }
+  function inputAttrsMatchCouponKeywords(attrs) {
+    const text = joinAttrs([
+      attrs.name,
+      attrs.id,
+      attrs.placeholder,
+      attrs.ariaLabel,
+      attrs.autocomplete
+    ]);
+    return COUPON_INPUT_KEYWORDS.some((keyword) => text.includes(keyword));
+  }
+  function buttonAttrsMatchApplyKeywords(attrs) {
+    const text = joinAttrs([
+      attrs.innerText,
+      attrs.value,
+      attrs.ariaLabel,
+      attrs.title
+    ]);
+    return APPLY_BUTTON_KEYWORDS.some((keyword) => text.includes(keyword));
+  }
+  function readCouponInputAttrs(input) {
+    return {
+      name: input.name,
+      id: input.id,
+      placeholder: input.placeholder,
+      ariaLabel: input.getAttribute("aria-label"),
+      autocomplete: input.getAttribute("autocomplete")
+    };
+  }
+  function readApplyButtonAttrs(element) {
+    return {
+      innerText: element.innerText,
+      value: element.getAttribute("value"),
+      ariaLabel: element.getAttribute("aria-label"),
+      title: element.getAttribute("title")
+    };
+  }
+
+  // extension/profileDiagnostics.ts
+  var SUPPORT_REASON = {
+    Ready: "ready",
+    HostnameUnrecognized: "hostname_unrecognized",
+    NoCandidateCodes: "no_candidate_codes",
+    CouponInputMissing: "coupon_input_missing",
+    ApplyButtonMissing: "apply_button_missing",
+    TotalMissing: "total_missing"
+  };
+  function deriveSupportReason(input) {
+    if (!input.profileMatched) return SUPPORT_REASON.HostnameUnrecognized;
+    if (input.candidateCodeCount <= 0) return SUPPORT_REASON.NoCandidateCodes;
+    if (!input.couponInputFound) return SUPPORT_REASON.CouponInputMissing;
+    if (!input.applyButtonFound) return SUPPORT_REASON.ApplyButtonMissing;
+    if (!input.totalDetected) return SUPPORT_REASON.TotalMissing;
+    return SUPPORT_REASON.Ready;
   }
 
   // extension/contentScript.ts
@@ -242,30 +316,17 @@
   }
   function findCouponInputs() {
     const inputs = Array.from(document.querySelectorAll("input"));
-    return inputs.filter((input) => {
-      const text = [
-        input.name,
-        input.id,
-        input.placeholder,
-        input.getAttribute("aria-label"),
-        input.getAttribute("autocomplete")
-      ].filter(Boolean).join(" ").toLowerCase();
-      return text.includes("coupon") || text.includes("promo") || text.includes("discount") || text.includes("voucher");
-    });
+    return inputs.filter(
+      (input) => inputAttrsMatchCouponKeywords(readCouponInputAttrs(input))
+    );
   }
   function findApplyButtons() {
     const elements = Array.from(
       document.querySelectorAll("button, input[type='submit'], input[type='button']")
     );
-    return elements.filter((element) => {
-      const text = [
-        element.innerText,
-        element.getAttribute("value"),
-        element.getAttribute("aria-label"),
-        element.getAttribute("title")
-      ].filter(Boolean).join(" ").toLowerCase();
-      return text.includes("apply") || text.includes("redeem") || text.includes("use code");
-    });
+    return elements.filter(
+      (element) => buttonAttrsMatchApplyKeywords(readApplyButtonAttrs(element))
+    );
   }
   function findCouponInputForProfile(profile) {
     if (profile?.selectors?.couponInput) {
@@ -634,7 +695,7 @@
       }
     }
   }
-  async function findBestWorkingCoupon(codes, profile) {
+  async function findBestWorkingCoupon(codes, profile, onProgress) {
     const WAIT_MS = 5e3;
     const baselineScan = scanCheckoutPage(profile);
     const baselineTotalCents = baselineScan.totalCents;
@@ -647,7 +708,15 @@
     }
     await expandCouponSection(profile);
     const results = [];
-    for (const code of codes) {
+    for (let i = 0; i < codes.length; i++) {
+      const code = codes[i];
+      if (onProgress) {
+        try {
+          onProgress({ current: i + 1, total: codes.length, code });
+        } catch (progressErr) {
+          console.log("Salvare progress callback failed:", progressErr);
+        }
+      }
       console.log("Salvare testing code:", code);
       const inputCheck = findCouponInputForProfile(profile);
       if (!inputCheck || !isElementVisible(inputCheck)) {
@@ -722,7 +791,8 @@
         applyButtonFound: false,
         totalDetected: false,
         baselineTotalCents: null,
-        message: "This store is not supported yet."
+        message: "This store is not supported yet.",
+        reason: SUPPORT_REASON.HostnameUnrecognized
       };
     }
     const codes = await fetchCandidateCodes(domain);
@@ -735,7 +805,9 @@
         applyButtonFound: false,
         totalDetected: false,
         baselineTotalCents: null,
-        message: "No candidate coupons found for this store."
+        message: "No candidate coupons found for this store.",
+        reason: SUPPORT_REASON.NoCandidateCodes,
+        profileId: profile.id
       };
     }
     await expandCouponSection(profile);
@@ -746,6 +818,13 @@
     const baselineScan = scanCheckoutPage(profile);
     const baselineTotalCents = baselineScan.totalCents;
     const totalDetected = baselineTotalCents !== null;
+    const reason = deriveSupportReason({
+      profileMatched: true,
+      candidateCodeCount: codes.length,
+      couponInputFound,
+      applyButtonFound,
+      totalDetected
+    });
     let message = "Ready to test coupons.";
     if (!couponInputFound) {
       message = "Coupon input not found on this page.";
@@ -762,17 +841,38 @@
       applyButtonFound,
       totalDetected,
       baselineTotalCents,
-      message
+      message,
+      reason,
+      profileId: profile.id
     };
   }
   var initialProfile = getStoreProfileForDomain(window.location.hostname);
   var scan = scanCheckoutPage(initialProfile);
   console.log("Salvare checkout scan:", scan);
   logPossibleCheckoutText();
+  function emitCouponProgress(runId, update) {
+    try {
+      chrome.runtime.sendMessage(
+        {
+          type: "SALVARE_COUPON_PROGRESS",
+          runId,
+          current: update.current,
+          total: update.total,
+          code: update.code
+        },
+        () => {
+          void chrome.runtime.lastError;
+        }
+      );
+    } catch (err) {
+      console.log("Salvare progress broadcast failed:", err);
+    }
+  }
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === "SALVARE_FIND_BEST_COUPON") {
       const hostname = window.location.hostname;
       const profile = getStoreProfileForDomain(hostname);
+      const runId = typeof message.runId === "string" ? message.runId : void 0;
       (async () => {
         const codes = await fetchCandidateCodes(hostname);
         if (!profile || codes.length === 0) {
@@ -782,7 +882,9 @@
           });
           return;
         }
-        const best = await findBestWorkingCoupon(codes, profile);
+        const best = await findBestWorkingCoupon(codes, profile, (update) => {
+          emitCouponProgress(runId, update);
+        });
         if (!best) {
           sendResponse({
             success: false,
@@ -794,7 +896,8 @@
           success: true,
           bestCode: best.code,
           totalCents: best.totalCents,
-          savingsCents: best.baselineTotalCents - best.totalCents
+          savingsCents: best.baselineTotalCents - best.totalCents,
+          codesTested: codes.length
         });
       })();
       return true;

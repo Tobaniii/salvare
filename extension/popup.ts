@@ -2,7 +2,11 @@ import {
   POPUP_CONNECT_ERROR,
   POPUP_FALLBACK_UNSUPPORTED,
 } from "./popupMessages";
-import { renderResultStatus, renderSupportStatus } from "./popupRender";
+import {
+  renderProgressStatus,
+  renderResultStatus,
+  renderSupportStatus,
+} from "./popupRender";
 
 const button = document.getElementById("find-best") as HTMLButtonElement | null;
 const statusElement = document.getElementById("status");
@@ -105,11 +109,49 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
+interface CouponProgressMessage {
+  type: "SALVARE_COUPON_PROGRESS";
+  runId?: string;
+  current: number;
+  total: number;
+  code?: string;
+}
+
+let activeRunId: string | null = null;
+
+function generateRunId(): string {
+  const cryptoObj = (globalThis as { crypto?: Crypto }).crypto;
+  if (cryptoObj && typeof cryptoObj.randomUUID === "function") {
+    return cryptoObj.randomUUID();
+  }
+  return `run-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+chrome.runtime.onMessage.addListener((message: CouponProgressMessage) => {
+  if (message?.type !== "SALVARE_COUPON_PROGRESS") return;
+  if (!activeRunId || message.runId !== activeRunId) return;
+
+  try {
+    setStatus(
+      renderProgressStatus({
+        current: message.current,
+        total: message.total,
+        code: message.code,
+      }),
+    );
+  } catch (err) {
+    console.error("Salvare popup progress render failed:", err);
+  }
+});
+
 button?.addEventListener("click", async () => {
   console.log("Salvare popup button clicked");
 
   setStatus("Scanning checkout...");
   disableButton();
+
+  const runId = generateRunId();
+  activeRunId = runId;
 
   let tabId: number | undefined;
   try {
@@ -122,12 +164,14 @@ button?.addEventListener("click", async () => {
     console.error("Salvare popup tabs.query failed:", err);
     setStatus(POPUP_CONNECT_ERROR);
     enableButton();
+    activeRunId = null;
     return;
   }
 
   if (!tabId) {
     setStatus("No active tab found.");
     enableButton();
+    activeRunId = null;
     return;
   }
 
@@ -136,28 +180,34 @@ button?.addEventListener("click", async () => {
   try {
     chrome.tabs.sendMessage(
       tabId,
-      { type: "SALVARE_FIND_BEST_COUPON" },
+      { type: "SALVARE_FIND_BEST_COUPON", runId },
       (response: FindBestResponse | undefined) => {
+        if (runId !== activeRunId) return;
+
         if (chrome.runtime.lastError) {
           console.error(chrome.runtime.lastError.message);
           setStatus(POPUP_CONNECT_ERROR);
           enableButton();
+          activeRunId = null;
           return;
         }
 
         if (!response?.success) {
           setStatus(response?.message ?? "No coupon found.");
           enableButton();
+          activeRunId = null;
           return;
         }
 
         setStatus(renderResultStatus(response));
         enableButton();
+        activeRunId = null;
       },
     );
   } catch (err) {
     console.error("Salvare popup sendMessage failed:", err);
     setStatus(POPUP_CONNECT_ERROR);
     enableButton();
+    activeRunId = null;
   }
 });

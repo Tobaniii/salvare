@@ -17,8 +17,33 @@ export interface PopupBestResultResponse {
   codesTested?: number;
 }
 
+export interface PopupProgressUpdate {
+  current: number;
+  total: number;
+  code?: string;
+}
+
 function formatDollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+export function renderProgressStatus(update: PopupProgressUpdate): string {
+  const safeTotal = Number.isFinite(update.total) && update.total > 0
+    ? Math.floor(update.total)
+    : 0;
+  const safeCurrent = Number.isFinite(update.current) && update.current > 0
+    ? Math.min(Math.floor(update.current), Math.max(safeTotal, 1))
+    : 1;
+
+  if (safeTotal <= 0) {
+    return "Testing coupons...";
+  }
+
+  const lines = [`Testing ${safeCurrent} of ${safeTotal}...`];
+  if (typeof update.code === "string" && update.code.trim().length > 0) {
+    lines.push(`Code: ${update.code.trim()}`);
+  }
+  return lines.join("\n");
 }
 
 export function renderSupportStatus(response: PopupSupportResponse): string {

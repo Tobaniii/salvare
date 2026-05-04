@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { SUPPORT_REASON } from "./profileDiagnostics";
-import { renderResultStatus, renderSupportStatus } from "./popupRender";
+import {
+  renderProgressStatus,
+  renderResultStatus,
+  renderSupportStatus,
+} from "./popupRender";
 
 describe("renderSupportStatus", () => {
   it("renders the supported ready state with the smoke-required substrings", () => {
@@ -113,6 +117,51 @@ describe("renderResultStatus", () => {
     });
     expect(out).toMatch(
       /Best code: \S+\nFinal total: \$\d+\.\d{2}\nYou saved: \$\d+\.\d{2}/,
+    );
+  });
+});
+
+describe("renderProgressStatus", () => {
+  it("renders current of total without code when code is missing", () => {
+    expect(renderProgressStatus({ current: 1, total: 3 })).toBe(
+      "Testing 1 of 3...",
+    );
+  });
+
+  it("includes the code line when a non-empty code is provided", () => {
+    const out = renderProgressStatus({
+      current: 2,
+      total: 3,
+      code: "SAVE10",
+    });
+    expect(out).toContain("Testing 2 of 3...");
+    expect(out).toContain("Code: SAVE10");
+  });
+
+  it("trims whitespace-only codes and omits the code line", () => {
+    const out = renderProgressStatus({
+      current: 1,
+      total: 2,
+      code: "   ",
+    });
+    expect(out).toBe("Testing 1 of 2...");
+  });
+
+  it("falls back to a generic testing message when total is zero", () => {
+    expect(renderProgressStatus({ current: 0, total: 0 })).toBe(
+      "Testing coupons...",
+    );
+  });
+
+  it("clamps current to at most total", () => {
+    expect(renderProgressStatus({ current: 99, total: 3 })).toBe(
+      "Testing 3 of 3...",
+    );
+  });
+
+  it("floors fractional inputs", () => {
+    expect(renderProgressStatus({ current: 1.7, total: 3.9 })).toBe(
+      "Testing 1 of 3...",
     );
   });
 });

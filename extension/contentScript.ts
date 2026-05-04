@@ -732,9 +732,18 @@ async function expandCouponSection(
   }
 }
 
+export interface CouponProgressUpdate {
+  current: number;
+  total: number;
+  code?: string;
+}
+
+export type CouponProgressCallback = (update: CouponProgressUpdate) => void;
+
 async function findBestWorkingCoupon(
   codes: string[],
   profile?: StoreProfile | null,
+  onProgress?: CouponProgressCallback,
 ): Promise<{
   code: string;
   totalCents: number;
@@ -758,7 +767,17 @@ async function findBestWorkingCoupon(
 
   const results: { code: string; totalCents: number }[] = [];
 
-  for (const code of codes) {
+  for (let i = 0; i < codes.length; i++) {
+    const code = codes[i];
+
+    if (onProgress) {
+      try {
+        onProgress({ current: i + 1, total: codes.length, code });
+      } catch (progressErr) {
+        console.log("Salvare progress callback failed:", progressErr);
+      }
+    }
+
     console.log("Salvare testing code:", code);
 
     const inputCheck = findCouponInputForProfile(profile);
@@ -946,10 +965,35 @@ const scan = scanCheckoutPage(initialProfile);
 console.log("Salvare checkout scan:", scan);
 logPossibleCheckoutText();
 
+function emitCouponProgress(
+  runId: string | undefined,
+  update: CouponProgressUpdate,
+): void {
+  try {
+    chrome.runtime.sendMessage(
+      {
+        type: "SALVARE_COUPON_PROGRESS",
+        runId,
+        current: update.current,
+        total: update.total,
+        code: update.code,
+      },
+      () => {
+        // Swallow lastError when no popup is listening — broadcast is best-effort.
+        void chrome.runtime.lastError;
+      },
+    );
+  } catch (err) {
+    console.log("Salvare progress broadcast failed:", err);
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "SALVARE_FIND_BEST_COUPON") {
     const hostname = window.location.hostname;
     const profile = getStoreProfileForDomain(hostname);
+    const runId: string | undefined =
+      typeof message.runId === "string" ? message.runId : undefined;
 
     (async () => {
       const codes = await fetchCandidateCodes(hostname);
@@ -962,7 +1006,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return;
       }
 
-      const best = await findBestWorkingCoupon(codes, profile);
+      const best = await findBestWorkingCoupon(codes, profile, (update) => {
+        emitCouponProgress(runId, update);
+      });
 
       if (!best) {
         sendResponse({
