@@ -6,6 +6,7 @@ export interface StoreSelectors {
 }
 
 export interface StoreProfile {
+  id: string;
   domain: string;
   candidateCodes: string[];
   selectors?: StoreSelectors;
@@ -13,14 +14,17 @@ export interface StoreProfile {
 
 const STORE_PROFILES: StoreProfile[] = [
   {
+    id: "localhost-react-cart",
     domain: "localhost",
     candidateCodes: ["SAVE10", "TAKE15", "FREESHIP"],
   },
   {
+    id: "wonderbly-com",
     domain: "www.wonderbly.com",
     candidateCodes: ["WELCOME10", "SAVE15", "FREESHIP"],
   },
   {
+    id: "shopify-test-store",
     domain: "salvare-test-store.myshopify.com",
     candidateCodes: ["WELCOME10", "SAVE15", "FREESHIP"],
     selectors: {
@@ -33,6 +37,7 @@ const STORE_PROFILES: StoreProfile[] = [
     },
   },
   {
+    id: "woo-test-local",
     domain: "salvare-woo-test.local",
     candidateCodes: ["WELCOME10", "TAKE20", "FREESHIP"],
     selectors: {

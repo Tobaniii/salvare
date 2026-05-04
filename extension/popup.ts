@@ -28,6 +28,8 @@ interface CheckoutSupportResponse {
   totalDetected: boolean;
   baselineTotalCents: number | null;
   message: string;
+  reason?: string;
+  profileId?: string;
 }
 
 function renderSupportStatus(response: CheckoutSupportResponse): string {

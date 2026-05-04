@@ -5,6 +5,17 @@ import {
 import { fetchCandidateCodes } from "./couponProvider";
 import { reportCouponResult } from "./resultReporter";
 import { extractMoneyText, parseMoneyToCents } from "./moneyParsing";
+import {
+  buttonAttrsMatchApplyKeywords,
+  inputAttrsMatchCouponKeywords,
+  readApplyButtonAttrs,
+  readCouponInputAttrs,
+} from "./selectors";
+import {
+  deriveSupportReason,
+  SUPPORT_REASON,
+  type SupportReason,
+} from "./profileDiagnostics";
 type SalvareCheckoutScan = {
   domain: string;
   subtotalText: string | null;
@@ -185,26 +196,9 @@ function findPossibleTotalText(profile?: StoreProfile | null): string | null {
 
 function findCouponInputs(): HTMLInputElement[] {
   const inputs = Array.from(document.querySelectorAll("input"));
-
-  return inputs.filter((input) => {
-    const text = [
-      input.name,
-      input.id,
-      input.placeholder,
-      input.getAttribute("aria-label"),
-      input.getAttribute("autocomplete"),
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-
-    return (
-      text.includes("coupon") ||
-      text.includes("promo") ||
-      text.includes("discount") ||
-      text.includes("voucher")
-    );
-  });
+  return inputs.filter((input) =>
+    inputAttrsMatchCouponKeywords(readCouponInputAttrs(input)),
+  );
 }
 
 function findApplyButtons(): HTMLElement[] {
@@ -212,23 +206,9 @@ function findApplyButtons(): HTMLElement[] {
     document.querySelectorAll("button, input[type='submit'], input[type='button']")
   ) as HTMLElement[];
 
-  return elements.filter((element) => {
-    const text = [
-      element.innerText,
-      element.getAttribute("value"),
-      element.getAttribute("aria-label"),
-      element.getAttribute("title"),
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-
-    return (
-      text.includes("apply") ||
-      text.includes("redeem") ||
-      text.includes("use code")
-    );
-  });
+  return elements.filter((element) =>
+    buttonAttrsMatchApplyKeywords(readApplyButtonAttrs(element)),
+  );
 }
 
 function findCouponInputForProfile(
@@ -877,6 +857,8 @@ interface CheckoutSupportStatus {
   totalDetected: boolean;
   baselineTotalCents: number | null;
   message: string;
+  reason: SupportReason;
+  profileId?: string;
 }
 
 async function getCheckoutSupportStatus(
@@ -894,6 +876,7 @@ async function getCheckoutSupportStatus(
       totalDetected: false,
       baselineTotalCents: null,
       message: "This store is not supported yet.",
+      reason: SUPPORT_REASON.HostnameUnrecognized,
     };
   }
 
@@ -908,6 +891,8 @@ async function getCheckoutSupportStatus(
       totalDetected: false,
       baselineTotalCents: null,
       message: "No candidate coupons found for this store.",
+      reason: SUPPORT_REASON.NoCandidateCodes,
+      profileId: profile.id,
     };
   }
 
@@ -923,6 +908,14 @@ async function getCheckoutSupportStatus(
   const baselineScan = scanCheckoutPage(profile);
   const baselineTotalCents = baselineScan.totalCents;
   const totalDetected = baselineTotalCents !== null;
+
+  const reason = deriveSupportReason({
+    profileMatched: true,
+    candidateCodeCount: codes.length,
+    couponInputFound,
+    applyButtonFound,
+    totalDetected,
+  });
 
   let message = "Ready to test coupons.";
   if (!couponInputFound) {
@@ -942,6 +935,8 @@ async function getCheckoutSupportStatus(
     totalDetected,
     baselineTotalCents,
     message,
+    reason,
+    profileId: profile.id,
   };
 }
 

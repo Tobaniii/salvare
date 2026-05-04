@@ -5,8 +5,23 @@ describe("getStoreProfileForDomain", () => {
   it("returns the localhost profile", () => {
     const profile = getStoreProfileForDomain("localhost");
     expect(profile).not.toBeNull();
+    expect(profile?.id).toBe("localhost-react-cart");
     expect(profile?.domain).toBe("localhost");
     expect(profile?.candidateCodes).toHaveLength(3);
+  });
+
+  it("exposes a stable id for every profile", () => {
+    const ids = [
+      "localhost",
+      "www.wonderbly.com",
+      "salvare-test-store.myshopify.com",
+      "salvare-woo-test.local",
+    ].map((d) => getStoreProfileForDomain(d)?.id);
+    for (const id of ids) {
+      expect(typeof id).toBe("string");
+      expect(id?.length).toBeGreaterThan(0);
+    }
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   it("returns the Shopify profile with selectors", () => {
