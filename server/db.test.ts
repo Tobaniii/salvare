@@ -136,4 +136,117 @@ describe("initSchema", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].value).toBe(EXPECTED_SCHEMA_VERSION);
   });
+
+  it("creates coupon_sources and coupon_code_sources tables", () => {
+    const db = makeMemoryDb();
+    const tables = listTables(db);
+    expect(tables).toContain("coupon_sources");
+    expect(tables).toContain("coupon_code_sources");
+  });
+
+  it("creates the expected coupon_code_sources indexes", () => {
+    const db = makeMemoryDb();
+    const indexes = listIndexes(db);
+    expect(indexes).toContain("idx_coupon_code_sources_store_code");
+    expect(indexes).toContain("idx_coupon_code_sources_source");
+  });
+
+  it("seeds default coupon_sources rows (seed, admin, import)", () => {
+    const db = makeMemoryDb();
+    const rows = db
+      .prepare("SELECT id, type, enabled FROM coupon_sources ORDER BY id ASC")
+      .all() as Array<{ id: string; type: string; enabled: number }>;
+    const ids = rows.map((r) => r.id);
+    expect(ids).toEqual(["admin", "import", "seed"]);
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    expect(byId.get("seed")?.type).toBe("seed");
+    expect(byId.get("admin")?.type).toBe("manual");
+    expect(byId.get("import")?.type).toBe("import");
+    for (const r of rows) {
+      expect(r.enabled).toBe(1);
+    }
+  });
+
+  it("default coupon_sources rows are not duplicated on repeated initSchema", () => {
+    const db = makeMemoryDb();
+    initSchema(db);
+    initSchema(db);
+    const count = (
+      db
+        .prepare(
+          "SELECT COUNT(*) AS c FROM coupon_sources WHERE id IN ('seed','admin','import')",
+        )
+        .get() as { c: number }
+    ).c;
+    expect(count).toBe(3);
+  });
+
+  it("EXPECTED_SCHEMA_VERSION reflects the v0.27.0 bump", () => {
+    expect(EXPECTED_SCHEMA_VERSION).toBe("2");
+  });
+
+  it("coupon_code_sources rejects an invalid source_id reference", () => {
+    const db = makeMemoryDb();
+    db.prepare(
+      "INSERT INTO stores (domain, created_at, updated_at) VALUES ('a.com', '', '')",
+    ).run();
+    const storeId = (
+      db.prepare("SELECT id FROM stores WHERE domain = 'a.com'").get() as {
+        id: number;
+      }
+    ).id;
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO coupon_code_sources
+             (store_id, code, source_id, discovered_at)
+             VALUES (?, ?, ?, ?)`,
+        )
+        .run(storeId, "WELCOME10", "no-such-source", "2026-05-04T00:00:00.000Z"),
+    ).toThrow();
+  });
+
+  it("coupon_code_sources cascades on store deletion", () => {
+    const db = makeMemoryDb();
+    db.prepare(
+      "INSERT INTO stores (domain, created_at, updated_at) VALUES ('a.com', '', '')",
+    ).run();
+    const storeId = (
+      db.prepare("SELECT id FROM stores WHERE domain = 'a.com'").get() as {
+        id: number;
+      }
+    ).id;
+    db.prepare(
+      `INSERT INTO coupon_code_sources
+         (store_id, code, source_id, discovered_at)
+         VALUES (?, ?, 'seed', ?)`,
+    ).run(storeId, "WELCOME10", "2026-05-04T00:00:00.000Z");
+    db.prepare("DELETE FROM stores WHERE id = ?").run(storeId);
+    const remaining = (
+      db
+        .prepare("SELECT COUNT(*) AS c FROM coupon_code_sources")
+        .get() as { c: number }
+    ).c;
+    expect(remaining).toBe(0);
+  });
+
+  it("coupon_sources delete is restricted while provenance references it", () => {
+    const db = makeMemoryDb();
+    db.prepare(
+      "INSERT INTO stores (domain, created_at, updated_at) VALUES ('a.com', '', '')",
+    ).run();
+    const storeId = (
+      db.prepare("SELECT id FROM stores WHERE domain = 'a.com'").get() as {
+        id: number;
+      }
+    ).id;
+    db.prepare(
+      `INSERT INTO coupon_code_sources
+         (store_id, code, source_id, discovered_at)
+         VALUES (?, ?, 'seed', ?)`,
+    ).run(storeId, "WELCOME10", "2026-05-04T00:00:00.000Z");
+    expect(() =>
+      db.prepare("DELETE FROM coupon_sources WHERE id = 'seed'").run(),
+    ).toThrow();
+  });
 });

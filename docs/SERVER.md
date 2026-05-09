@@ -426,7 +426,7 @@ Always run `npm run db:backup` before `npm run db:import` if the target DB has d
 
 #### Schema versioning and integrity verification
 
-The SQLite schema carries a small `schema_meta(key, value)` table populated by `initSchema`. The single `'version'` row records the expected schema version (currently `1`) and is upserted idempotently via `INSERT ... ON CONFLICT(key) DO UPDATE`, so existing databases are upgraded in place without data loss when the backend boots.
+The SQLite schema carries a small `schema_meta(key, value)` table populated by `initSchema`. The single `'version'` row records the expected schema version (currently `2`) and is upserted idempotently via `INSERT ... ON CONFLICT(key) DO UPDATE`, so existing databases are upgraded in place without data loss when the backend boots. v0.27.0 raised the version from `1` to `2` when adding the additive `coupon_sources` and `coupon_code_sources` provenance tables; existing rows in `stores`, `coupon_codes`, and `coupon_results` are preserved across the bump.
 
 ```bash
 npm run db:verify     # read-only integrity check on the configured DB
@@ -434,12 +434,14 @@ npm run db:verify     # read-only integrity check on the configured DB
 
 `db:verify` honors `SALVARE_DB_PATH`, opens the DB read-mostly (it does not insert, update, or delete user data), and runs these checks:
 
-- `tables_present` — `stores`, `coupon_codes`, `coupon_results`, `schema_meta` all exist.
+- `tables_present` — `stores`, `coupon_codes`, `coupon_results`, `coupon_sources`, `coupon_code_sources`, `schema_meta` all exist.
 - `schema_version` — `schema_meta.version` equals the expected schema version.
 - `foreign_keys` — `PRAGMA foreign_key_check` returns no offending rows.
-- `indexes_present` — `idx_coupon_results_store_code` and `idx_coupon_results_tested_at` exist.
+- `indexes_present` — `idx_coupon_results_store_code`, `idx_coupon_results_tested_at`, `idx_coupon_code_sources_store_code`, and `idx_coupon_code_sources_source` exist.
 - `coupon_codes_orphans` — every `coupon_codes.store_id` resolves to an existing `stores` row.
 - `coupon_results_orphans` — every `coupon_results.store_id` resolves to an existing `stores` row.
+- `coupon_code_sources_store_orphans` — every `coupon_code_sources.store_id` resolves to an existing `stores` row.
+- `coupon_code_sources_source_orphans` — every `coupon_code_sources.source_id` resolves to an existing `coupon_sources` row.
 
 Warnings are reported separately and do not fail the run:
 

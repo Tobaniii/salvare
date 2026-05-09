@@ -119,3 +119,7 @@ The near-term roadmap exists to translate this policy into small, reviewable mil
 - **v0.31+** — Provider, API, and feed research; first real provider spike behind the allowlist and kill switch defined above.
 
 The roadmap is a planning aid, not a commitment. Every milestone above must still satisfy this policy before any code lands.
+
+### Status
+
+- **v0.27.0 — landed.** The internal `coupon_sources` and `coupon_code_sources` tables, default `seed`/`admin`/`import` source rows, source-id validation, and the `db-sources.ts` helper module exist at the schema and code layer. No external ingestion runs against them yet; export/import JSON shapes are unchanged. See [`docs/DATABASE_PLAN.md`](DATABASE_PLAN.md) section 9b for the schema details.

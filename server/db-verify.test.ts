@@ -105,6 +105,62 @@ describe("verifyDatabase", () => {
     expect(serialized).not.toContain("/");
   });
 
+  it("reports a missing coupon_sources table as a failed check", () => {
+    const db = makeDb();
+    db.exec("DROP TABLE coupon_code_sources");
+    db.exec("DROP TABLE coupon_sources");
+    const result = verifyDatabase(db);
+    expect(result.ok).toBe(false);
+    const tablesCheck = result.checks.find((c) => c.name === "tables_present");
+    expect(tablesCheck?.ok).toBe(false);
+  });
+
+  it("reports a missing coupon_code_sources index as a failed check", () => {
+    const db = makeDb();
+    db.exec("DROP INDEX idx_coupon_code_sources_source");
+    const result = verifyDatabase(db);
+    expect(result.ok).toBe(false);
+    const idxCheck = result.checks.find((c) => c.name === "indexes_present");
+    expect(idxCheck?.ok).toBe(false);
+  });
+
+  it("fails when a coupon_code_sources row references a missing store", () => {
+    const db = makeDb();
+    const storeId = insertStore(db, "shop.test");
+    db.prepare(
+      `INSERT INTO coupon_code_sources
+         (store_id, code, source_id, discovered_at)
+         VALUES (?, ?, 'seed', ?)`,
+    ).run(storeId, "WELCOME10", "2026-05-04T00:00:00.000Z");
+    db.pragma("foreign_keys = OFF");
+    db.prepare("DELETE FROM stores WHERE id = ?").run(storeId);
+    db.pragma("foreign_keys = ON");
+    const result = verifyDatabase(db);
+    const orphanCheck = result.checks.find(
+      (c) => c.name === "coupon_code_sources_store_orphans",
+    );
+    expect(orphanCheck?.ok).toBe(false);
+    expect(result.ok).toBe(false);
+  });
+
+  it("fails when a coupon_code_sources row references a missing source", () => {
+    const db = makeDb();
+    const storeId = insertStore(db, "shop.test");
+    db.pragma("foreign_keys = OFF");
+    db.prepare(
+      `INSERT INTO coupon_code_sources
+         (store_id, code, source_id, discovered_at)
+         VALUES (?, ?, 'no-such-source', ?)`,
+    ).run(storeId, "WELCOME10", "2026-05-04T00:00:00.000Z");
+    db.pragma("foreign_keys = ON");
+    const result = verifyDatabase(db);
+    const orphanCheck = result.checks.find(
+      (c) => c.name === "coupon_code_sources_source_orphans",
+    );
+    expect(orphanCheck?.ok).toBe(false);
+    expect(result.ok).toBe(false);
+  });
+
   it("formatVerifyReport output does not leak codes, paths, env, or headers", () => {
     const db = makeDb();
     const storeId = insertStore(db, "leakrender.example");

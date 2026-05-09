@@ -149,6 +149,21 @@ A bootstrap step lands ahead of the route swap so the database can be populated 
 - Seed and coupon-code imports are idempotent: stores and codes are inserted with `INSERT OR IGNORE`, so repeated runs report zero new rows.
 - Result history is cleared and reimported from the JSON file on every bootstrap run. The JSON file remains the source of truth in Phase 2 — routes still write to JSON, and the DB mirror is rebuilt on demand. This will be revisited in Phase 4 when routes start writing directly to the DB.
 
+## 9b. v0.27.0 — coupon source / provenance data model
+
+Internal data model for trusted source ingestion landed at the schema layer in v0.27.0. No ingestion runs yet — only the tables, default rows, helpers, and `db:verify` checks needed for future milestones.
+
+- New tables (additive; existing `stores`, `coupon_codes`, `coupon_results` shapes unchanged):
+  - `coupon_sources(id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)` with `type` constrained to one of `manual | seed | import | api | feed | html_adapter`.
+  - `coupon_code_sources(id, store_id → stores ON DELETE CASCADE, code, source_id → coupon_sources ON DELETE RESTRICT, discovered_at, label, expires_at, source_url, confidence)` with `UNIQUE(store_id, code, source_id)` and `confidence` constrained to `0..100`.
+  - Indexes: `idx_coupon_code_sources_store_code`, `idx_coupon_code_sources_source`.
+- `EXPECTED_SCHEMA_VERSION` bumped from `"1"` to `"2"`. Existing developer DBs are stamped to `"2"` by `initSchema`'s idempotent `INSERT … ON CONFLICT(key) DO UPDATE` on `schema_meta`. No destructive migration; existing rows are preserved.
+- Default source rows are seeded once via `INSERT OR IGNORE` inside `initSchema`: `seed`, `admin`, `import`. Existing historical `coupon_codes` rows are deliberately **not** backfilled with provenance — there is no authoritative way to attribute them retroactively, and the source policy forbids guessing.
+- Pure helpers live in [`server/db-sources.ts`](../server/db-sources.ts): `ensureCouponSource`, `listCouponSources`, `recordCouponCodeSource`, `listSourcesForCoupon`, `getCouponSourceSummary`. Source IDs are validated against `^[a-z0-9][a-z0-9-]{0,63}$` so URL-, path-, and secret-shaped values are rejected. Helper outputs never include source payloads, raw HTML, request headers, auth tokens, cookies, environment variables, or filesystem paths.
+- `db:verify` adds `tables_present` / `indexes_present` coverage for the new tables and indexes plus two new orphan checks: `coupon_code_sources_store_orphans` and `coupon_code_sources_source_orphans`. Both fail-on-orphan; they do not warn on missing provenance for existing `coupon_codes`.
+- Export/import compatibility is **unchanged** in this milestone. `buildExportPayloads`, `parseCouponsExport`, `parseResultsExport`, `importCouponsExport`, `importResultsExport`, the admin export/import endpoints, and the `db:export`/`db:import` CLIs all keep their existing JSON shapes. A dedicated provenance export/import is future work, gated by the source policy.
+- Runtime API shapes (`/coupons`, `/admin/coupons`, `/admin/coupon-stats`, `/admin/export/*`, `/admin/import/*`, `/results`, `/health`) and extension behavior are untouched.
+
 ## 10. Out of scope
 
 - Hosted database, replication, or remote sync.

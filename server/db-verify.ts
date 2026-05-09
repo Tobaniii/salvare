@@ -29,12 +29,16 @@ const REQUIRED_TABLES = [
   "stores",
   "coupon_codes",
   "coupon_results",
+  "coupon_sources",
+  "coupon_code_sources",
   "schema_meta",
 ] as const;
 
 const REQUIRED_INDEXES = [
   "idx_coupon_results_store_code",
   "idx_coupon_results_tested_at",
+  "idx_coupon_code_sources_store_code",
+  "idx_coupon_code_sources_source",
 ] as const;
 
 function listTables(db: Db): Set<string> {
@@ -124,6 +128,34 @@ export function verifyDatabase(db: Db): VerifyResult {
   checks.push({
     name: "coupon_results_orphans",
     ok: resultOrphans === 0,
+  });
+
+  const codeSourceStoreOrphans =
+    tables.has("coupon_code_sources") && tables.has("stores")
+      ? countOrCatch(
+          db,
+          `SELECT COUNT(*) AS c FROM coupon_code_sources cs
+             LEFT JOIN stores s ON s.id = cs.store_id
+             WHERE s.id IS NULL`,
+        )
+      : null;
+  checks.push({
+    name: "coupon_code_sources_store_orphans",
+    ok: codeSourceStoreOrphans === 0,
+  });
+
+  const codeSourceSourceOrphans =
+    tables.has("coupon_code_sources") && tables.has("coupon_sources")
+      ? countOrCatch(
+          db,
+          `SELECT COUNT(*) AS c FROM coupon_code_sources cs
+             LEFT JOIN coupon_sources src ON src.id = cs.source_id
+             WHERE src.id IS NULL`,
+        )
+      : null;
+  checks.push({
+    name: "coupon_code_sources_source_orphans",
+    ok: codeSourceSourceOrphans === 0,
   });
 
   if (tables.has("coupon_results")) {
