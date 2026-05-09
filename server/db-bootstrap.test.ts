@@ -1,6 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { openDatabase, type Db } from "./db";
 import { importResults, importSeed } from "./db-bootstrap";
+import { listSourcesForCoupon } from "./db-sources";
+
+function storeIdFor(db: Db, domain: string): number {
+  return (
+    db.prepare("SELECT id FROM stores WHERE domain = ?").get(domain) as {
+      id: number;
+    }
+  ).id;
+}
 
 function memoryDb(): Db {
   return openDatabase(":memory:");
@@ -56,6 +65,34 @@ describe("importSeed", () => {
       )
       .all() as Array<{ code: string }>;
     expect(rows.map((r) => r.code)).toEqual(["FIRST", "SECOND", "THIRD"]);
+  });
+
+  it("records 'seed' provenance for every seeded code", () => {
+    const db = memoryDb();
+    const now = "2026-05-09T00:00:00.000Z";
+    importSeed(db, { "a.com": ["A1", "A2"] }, now);
+    const storeId = storeIdFor(db, "a.com");
+    for (const code of ["A1", "A2"]) {
+      const rows = listSourcesForCoupon(db, storeId, code);
+      expect(rows.map((r) => r.sourceId)).toEqual(["seed"]);
+      expect(rows[0].discoveredAt).toBe(now);
+    }
+  });
+
+  it("seed provenance is idempotent across reruns (no duplicate provenance rows)", () => {
+    const db = memoryDb();
+    importSeed(db, { "a.com": ["A1", "A2"] });
+    importSeed(db, { "a.com": ["A1", "A2"] });
+    const storeId = storeIdFor(db, "a.com");
+    for (const code of ["A1", "A2"]) {
+      expect(listSourcesForCoupon(db, storeId, code)).toHaveLength(1);
+    }
+    const total = (
+      db
+        .prepare("SELECT COUNT(*) AS c FROM coupon_code_sources")
+        .get() as { c: number }
+    ).c;
+    expect(total).toBe(2);
   });
 });
 

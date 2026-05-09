@@ -11,6 +11,11 @@
 
 import type { Db } from "./db";
 import type { ResultsEnvelope, SeedData } from "./db-bootstrap";
+import {
+  BUILTIN_SOURCE_IDS,
+  pruneCouponCodeSourcesForStore,
+  recordCouponCodeSource,
+} from "./db-sources";
 
 export type ParseResult<T> =
   | { ok: true; value: T }
@@ -213,9 +218,16 @@ export function importCouponsExport(
 
       deleteCodes.run(row.id);
       const unique = [...new Set(codes.map((c) => c.trim()))];
+      pruneCouponCodeSourcesForStore(db, row.id, unique);
       for (const code of unique) {
         insertCode.run(row.id, code, now, now);
         codesImported++;
+        recordCouponCodeSource(db, {
+          storeId: row.id,
+          code,
+          sourceId: BUILTIN_SOURCE_IDS.import,
+          discoveredAt: now,
+        });
       }
     }
   });

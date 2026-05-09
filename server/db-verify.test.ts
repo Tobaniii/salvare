@@ -161,6 +161,16 @@ describe("verifyDatabase", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("passes when some coupon_codes have no matching coupon_code_sources rows (backward compat with v0.27 DBs)", () => {
+    const db = makeDb();
+    const storeId = insertStore(db, "shop.test");
+    db.prepare(
+      "INSERT INTO coupon_codes (store_id, code, created_at, updated_at) VALUES (?, ?, '', '')",
+    ).run(storeId, "NO-PROVENANCE");
+    const result = verifyDatabase(db);
+    expect(result.ok).toBe(true);
+  });
+
   it("formatVerifyReport output does not leak codes, paths, env, or headers", () => {
     const db = makeDb();
     const storeId = insertStore(db, "leakrender.example");

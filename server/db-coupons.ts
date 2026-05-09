@@ -4,6 +4,11 @@ import {
   readSeedFromDisk,
   type SeedData,
 } from "./db-bootstrap";
+import {
+  BUILTIN_SOURCE_IDS,
+  pruneCouponCodeSourcesForStore,
+  recordCouponCodeSource,
+} from "./db-sources";
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -78,8 +83,15 @@ export function upsertCouponCodes(
       throw new Error("store row missing after upsert");
     }
     deleteCodes.run(storeRow.id);
+    pruneCouponCodeSourcesForStore(db, storeRow.id, normalizedCodes);
     for (const code of normalizedCodes) {
       insertCode.run(storeRow.id, code, now, now);
+      recordCouponCodeSource(db, {
+        storeId: storeRow.id,
+        code,
+        sourceId: BUILTIN_SOURCE_IDS.admin,
+        discoveredAt: now,
+      });
     }
   });
   txn();

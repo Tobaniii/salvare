@@ -11,6 +11,15 @@ import {
   appendResultRecord,
   getResultsForDomain,
 } from "./db-results";
+import { listSourcesForCoupon } from "./db-sources";
+
+function storeIdFor(db: Db, domain: string): number {
+  return (
+    db.prepare("SELECT id FROM stores WHERE domain = ?").get(domain) as {
+      id: number;
+    }
+  ).id;
+}
 
 interface Harness {
   baseUrl: string;
@@ -80,6 +89,25 @@ describe("admin import apply (auth disabled)", () => {
     expect(getCandidateCodesForDomain(h.db, "apply-b.com")).toEqual(["BB1"]);
     // Untouched seeded domain remains.
     expect(getCandidateCodesForDomain(h.db, "seed.com")).toEqual(["S1", "S2"]);
+
+    // Provenance: every imported code records source_id = "import" and the
+    // pre-existing seeded admin-domain provenance is untouched.
+    const aId = storeIdFor(h.db, "apply-a.com");
+    const bId = storeIdFor(h.db, "apply-b.com");
+    for (const code of ["AA1", "AA2"]) {
+      expect(
+        listSourcesForCoupon(h.db, aId, code).map((r) => r.sourceId),
+      ).toEqual(["import"]);
+    }
+    expect(
+      listSourcesForCoupon(h.db, bId, "BB1").map((r) => r.sourceId),
+    ).toEqual(["import"]);
+    const seedId = storeIdFor(h.db, "seed.com");
+    for (const code of ["S1", "S2"]) {
+      expect(
+        listSourcesForCoupon(h.db, seedId, code).map((r) => r.sourceId),
+      ).toEqual(["admin"]);
+    }
   });
 
   it("POST /admin/import/apply/results writes payload and returns expected counts", async () => {
@@ -367,6 +395,14 @@ describe("admin import apply (auth enabled)", () => {
       expect(raw).not.toContain("67890");
       expect(raw).not.toContain("bonusUnknownField");
       expect(raw).not.toContain("should-not-echo-apply");
+      // Provenance fields must not leak into apply responses in this milestone.
+      expect(raw).not.toContain("sourceId");
+      expect(raw).not.toContain("source_id");
+      expect(raw).not.toContain("discoveredAt");
+      expect(raw).not.toContain("discovered_at");
+      expect(raw).not.toContain("coupon_code_sources");
+      expect(raw).not.toContain("confidence");
+      expect(raw).not.toContain("sourceUrl");
     }
 
     expect(Object.keys(couponsBody).sort()).toEqual(

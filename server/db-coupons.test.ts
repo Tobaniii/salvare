@@ -10,6 +10,15 @@ import {
   getCandidateCodesForDomain,
   upsertCouponCodes,
 } from "./db-coupons";
+import { listSourcesForCoupon } from "./db-sources";
+
+function storeIdFor(db: Db, domain: string): number {
+  return (
+    db.prepare("SELECT id FROM stores WHERE domain = ?").get(domain) as {
+      id: number;
+    }
+  ).id;
+}
 
 function memoryDb(): Db {
   return openDatabase(":memory:");
@@ -97,6 +106,53 @@ describe("upsertCouponCodes", () => {
       candidateCodes: ["A", "B", "C"],
     });
     expect(getCandidateCodesForDomain(db, "a.com")).toEqual(["A", "B", "C"]);
+  });
+
+  it("records 'admin' provenance for every written code", () => {
+    const db = memoryDb();
+    upsertCouponCodes(db, "a.com", ["A1", "A2"]);
+    const storeId = storeIdFor(db, "a.com");
+    for (const code of ["A1", "A2"]) {
+      const rows = listSourcesForCoupon(db, storeId, code);
+      expect(rows.map((r) => r.sourceId)).toEqual(["admin"]);
+    }
+  });
+
+  it("repeat upsert with the same codes does not duplicate provenance rows", () => {
+    const db = memoryDb();
+    upsertCouponCodes(db, "a.com", ["A1", "A2"]);
+    upsertCouponCodes(db, "a.com", ["A1", "A2"]);
+    const storeId = storeIdFor(db, "a.com");
+    for (const code of ["A1", "A2"]) {
+      expect(listSourcesForCoupon(db, storeId, code)).toHaveLength(1);
+    }
+  });
+
+  it("prunes provenance for codes dropped on a destructive replace", () => {
+    const db = memoryDb();
+    upsertCouponCodes(db, "a.com", ["A", "B"]);
+    const storeId = storeIdFor(db, "a.com");
+    upsertCouponCodes(db, "a.com", ["B", "C"]);
+    expect(listSourcesForCoupon(db, storeId, "A")).toEqual([]);
+    expect(listSourcesForCoupon(db, storeId, "B").map((r) => r.sourceId)).toEqual([
+      "admin",
+    ]);
+    expect(listSourcesForCoupon(db, storeId, "C").map((r) => r.sourceId)).toEqual([
+      "admin",
+    ]);
+  });
+
+  it("prune is store-local — provenance for other stores is untouched", () => {
+    const db = memoryDb();
+    upsertCouponCodes(db, "a.com", ["A1"]);
+    upsertCouponCodes(db, "b.com", ["B1"]);
+    const aId = storeIdFor(db, "a.com");
+    const bId = storeIdFor(db, "b.com");
+    upsertCouponCodes(db, "a.com", ["A2"]);
+    expect(listSourcesForCoupon(db, aId, "A1")).toEqual([]);
+    expect(listSourcesForCoupon(db, bId, "B1").map((r) => r.sourceId)).toEqual([
+      "admin",
+    ]);
   });
 });
 

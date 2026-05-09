@@ -22,6 +22,19 @@ const LABEL_MAX = 200;
 const EXPIRES_AT_MAX = 64;
 const SOURCE_URL_MAX = 2048;
 
+// Canonical source ids for the three local writer surfaces. Any future
+// trusted ingestion source must be registered via `ensureCouponSource` and
+// gated behind the allowlist policy in docs/SOURCE_POLICY.md; do not add
+// new entries here unless they are guaranteed to ship with that gating.
+export const BUILTIN_SOURCE_IDS = {
+  seed: "seed",
+  admin: "admin",
+  import: "import",
+} as const;
+
+export type BuiltinSourceId =
+  (typeof BUILTIN_SOURCE_IDS)[keyof typeof BUILTIN_SOURCE_IDS];
+
 export interface CouponSource {
   id: string;
   name: string;
@@ -347,6 +360,40 @@ export function listSourcesForCoupon(
     confidence: number | null;
   }>;
   return rows.map(rowToCodeSource);
+}
+
+// Drop coupon_code_sources rows for codes that are no longer present in
+// coupon_codes for `storeId`, scoped to a single store. Intended for use
+// inside a destructive replace transaction (e.g. `upsertCouponCodes`,
+// `importCouponsExport`) right after the coupon_codes for a store have
+// been deleted and before the new normalized list is inserted, so that
+// provenance does not outlive the codes it referred to.
+//
+// Scope is store-local: provenance for other stores is never touched.
+// `keepCodes` should be the post-trim/dedup list about to be reinserted.
+export function pruneCouponCodeSourcesForStore(
+  db: Db,
+  storeId: number,
+  keepCodes: readonly string[],
+): { deleted: number } {
+  if (!Number.isInteger(storeId) || storeId <= 0) {
+    throw new Error("storeId must be a positive integer");
+  }
+  if (keepCodes.length === 0) {
+    const r = db
+      .prepare(`DELETE FROM coupon_code_sources WHERE store_id = ?`)
+      .run(storeId);
+    return { deleted: r.changes };
+  }
+  const placeholders = keepCodes.map(() => "?").join(",");
+  const r = db
+    .prepare(
+      `DELETE FROM coupon_code_sources
+         WHERE store_id = ?
+           AND code NOT IN (${placeholders})`,
+    )
+    .run(storeId, ...keepCodes);
+  return { deleted: r.changes };
 }
 
 export function getCouponSourceSummary(db: Db): CouponSourceSummaryRow[] {

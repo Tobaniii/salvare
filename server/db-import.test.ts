@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase, type Db } from "./db";
+import { importSeed } from "./db-bootstrap";
 import { getAllSeedData, upsertCouponCodes } from "./db-coupons";
 import {
   appendResultRecord,
@@ -17,6 +18,15 @@ import {
   summarizeCouponsPreview,
   summarizeResultsPreview,
 } from "./db-import";
+import { listSourcesForCoupon } from "./db-sources";
+
+function storeIdFor(db: Db, domain: string): number {
+  return (
+    db.prepare("SELECT id FROM stores WHERE domain = ?").get(domain) as {
+      id: number;
+    }
+  ).id;
+}
 
 let workDir: string;
 
@@ -177,6 +187,54 @@ describe("importCouponsExport", () => {
     upsertCouponCodes(db, "a.com", ["OLD1", "OLD2"]);
     importCouponsExport(db, { "a.com": ["NEW1"] });
     expect(getAllSeedData(db)).toEqual({ "a.com": ["NEW1"] });
+    db.close();
+  });
+
+  it("records 'import' provenance for every imported code", () => {
+    const db = makeDbAt(join(workDir, "salvare.db"));
+    importCouponsExport(db, { "a.com": ["A1", "A2"] });
+    const storeId = storeIdFor(db, "a.com");
+    for (const code of ["A1", "A2"]) {
+      const rows = listSourcesForCoupon(db, storeId, code);
+      expect(rows.map((r) => r.sourceId)).toEqual(["import"]);
+    }
+    db.close();
+  });
+
+  it("repeat import does not duplicate provenance rows for the same source", () => {
+    const db = makeDbAt(join(workDir, "salvare.db"));
+    importCouponsExport(db, { "a.com": ["A1", "A2"] });
+    importCouponsExport(db, { "a.com": ["A1", "A2"] });
+    const storeId = storeIdFor(db, "a.com");
+    for (const code of ["A1", "A2"]) {
+      expect(listSourcesForCoupon(db, storeId, code)).toHaveLength(1);
+    }
+    db.close();
+  });
+
+  it("prunes provenance for codes dropped on per-domain replace", () => {
+    const db = makeDbAt(join(workDir, "salvare.db"));
+    importCouponsExport(db, { "a.com": ["A", "B"] });
+    const storeId = storeIdFor(db, "a.com");
+    importCouponsExport(db, { "a.com": ["B", "C"] });
+    expect(listSourcesForCoupon(db, storeId, "A")).toEqual([]);
+    expect(
+      listSourcesForCoupon(db, storeId, "B").map((r) => r.sourceId),
+    ).toEqual(["import"]);
+    expect(
+      listSourcesForCoupon(db, storeId, "C").map((r) => r.sourceId),
+    ).toEqual(["import"]);
+    db.close();
+  });
+
+  it("preserves provenance for stores not present in the import payload", () => {
+    const db = makeDbAt(join(workDir, "salvare.db"));
+    importSeed(db, { "untouched.com": ["U1"] });
+    const untouchedId = storeIdFor(db, "untouched.com");
+    importCouponsExport(db, { "a.com": ["A1"] });
+    expect(
+      listSourcesForCoupon(db, untouchedId, "U1").map((r) => r.sourceId),
+    ).toEqual(["seed"]);
     db.close();
   });
 });

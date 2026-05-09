@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Db } from "./db";
+import { BUILTIN_SOURCE_IDS, recordCouponCodeSource } from "./db-sources";
 
 export interface SeedData {
   [domain: string]: string[];
@@ -54,6 +55,12 @@ export function importSeed(
       for (const code of codeList) {
         const codeResult = codeInsert.run(storeId, code, now, now);
         if (codeResult.changes > 0) codesImported++;
+        recordCouponCodeSource(db, {
+          storeId,
+          code,
+          sourceId: BUILTIN_SOURCE_IDS.seed,
+          discoveredAt: now,
+        });
       }
     }
   });

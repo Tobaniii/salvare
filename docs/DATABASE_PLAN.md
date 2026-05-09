@@ -164,6 +164,20 @@ Internal data model for trusted source ingestion landed at the schema layer in v
 - Export/import compatibility is **unchanged** in this milestone. `buildExportPayloads`, `parseCouponsExport`, `parseResultsExport`, `importCouponsExport`, `importResultsExport`, the admin export/import endpoints, and the `db:export`/`db:import` CLIs all keep their existing JSON shapes. A dedicated provenance export/import is future work, gated by the source policy.
 - Runtime API shapes (`/coupons`, `/admin/coupons`, `/admin/coupon-stats`, `/admin/export/*`, `/admin/import/*`, `/results`, `/health`) and extension behavior are untouched.
 
+## 9c. v0.28.0 — provenance recording wired into local writers
+
+The three existing local coupon-code writers now record provenance into `coupon_code_sources` inside their existing transactions, using the v0.27 helpers. No external ingestion is added; the source policy in [`docs/SOURCE_POLICY.md`](SOURCE_POLICY.md) still applies to all future ingestion work.
+
+- Source identity is hardcoded per writer via the new `BUILTIN_SOURCE_IDS` constant in [`server/db-sources.ts`](../server/db-sources.ts):
+  - `importSeed` (seed bootstrap, [`server/db-bootstrap.ts`](../server/db-bootstrap.ts)) records `source_id = "seed"`.
+  - `upsertCouponCodes` (admin manual write, [`server/db-coupons.ts`](../server/db-coupons.ts)), called by `POST /admin/coupons`, records `source_id = "admin"`.
+  - `importCouponsExport` (JSON import, [`server/db-import.ts`](../server/db-import.ts)), called by both the `db:import` CLI and `POST /admin/import/apply/coupons`, records `source_id = "import"`.
+- Recording uses `recordCouponCodeSource`, which is `INSERT OR IGNORE` on `(store_id, code, source_id)`. Repeat-same-source writes are idempotent at the DB level; a different source claiming the same `(store_id, code)` lands as an additional row, by design.
+- Destructive per-store replace (`upsertCouponCodes`, `importCouponsExport`) prunes stale provenance for codes dropped on the same write via the new `pruneCouponCodeSourcesForStore` helper, atomically inside the same transaction. Scope is store-local — provenance for other stores is never touched. `importSeed` is `INSERT OR IGNORE` only and needs no prune.
+- No backfill of provenance for `coupon_codes` rows that pre-date v0.28; v0.27's stance still holds. New writes get provenance from this milestone forward.
+- Public response shapes are unchanged: `/coupons`, `/admin/coupons`, `/admin/import/apply/coupons`, `/admin/export/coupons`, `db:export`, and `db:import` JSON shapes are byte-compatible with v0.27. Extension behavior, ranking, admin UI, and result history are untouched.
+- `db:verify` is unchanged: the v0.27 FK orphan checks already cover the only failure modes introduced by writing into `coupon_code_sources`. Missing provenance for a `coupon_codes` row remains allowed (backward compatible with DBs initialized under v0.27).
+
 ## 10. Out of scope
 
 - Hosted database, replication, or remote sync.
