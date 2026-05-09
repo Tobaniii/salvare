@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 export type Db = Database.Database;
 
-export const EXPECTED_SCHEMA_VERSION = "2";
+export const EXPECTED_SCHEMA_VERSION = "3";
 
 export const COUPON_SOURCE_TYPES = [
   "manual",
@@ -77,6 +77,37 @@ const SCHEMA_SQL = `
 
   CREATE INDEX IF NOT EXISTS idx_coupon_code_sources_source
     ON coupon_code_sources(source_id);
+
+  CREATE TABLE IF NOT EXISTS source_cache (
+    source_id TEXT NOT NULL REFERENCES coupon_sources(id) ON DELETE RESTRICT,
+    cache_key TEXT NOT NULL,
+    fetched_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('ok','empty','error')),
+    body_sha256 TEXT,
+    metadata_json TEXT,
+    PRIMARY KEY (source_id, cache_key)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_source_cache_expires_at
+    ON source_cache(expires_at);
+
+  CREATE TABLE IF NOT EXISTS source_fetch_log (
+    id INTEGER PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES coupon_sources(id) ON DELETE RESTRICT,
+    cache_key TEXT NOT NULL,
+    attempted_at TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK (outcome IN ('ok','empty','error','rate_limited','cache_hit')),
+    status_code INTEGER,
+    error_code TEXT,
+    duration_ms INTEGER
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_source_fetch_log_source_attempt
+    ON source_fetch_log(source_id, attempted_at);
+
+  CREATE INDEX IF NOT EXISTS idx_source_fetch_log_source_key_attempt
+    ON source_fetch_log(source_id, cache_key, attempted_at);
 
   CREATE TABLE IF NOT EXISTS schema_meta (
     key TEXT PRIMARY KEY,

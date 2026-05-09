@@ -31,6 +31,8 @@ const REQUIRED_TABLES = [
   "coupon_results",
   "coupon_sources",
   "coupon_code_sources",
+  "source_cache",
+  "source_fetch_log",
   "schema_meta",
 ] as const;
 
@@ -39,6 +41,9 @@ const REQUIRED_INDEXES = [
   "idx_coupon_results_tested_at",
   "idx_coupon_code_sources_store_code",
   "idx_coupon_code_sources_source",
+  "idx_source_cache_expires_at",
+  "idx_source_fetch_log_source_attempt",
+  "idx_source_fetch_log_source_key_attempt",
 ] as const;
 
 function listTables(db: Db): Set<string> {
@@ -156,6 +161,34 @@ export function verifyDatabase(db: Db): VerifyResult {
   checks.push({
     name: "coupon_code_sources_source_orphans",
     ok: codeSourceSourceOrphans === 0,
+  });
+
+  const sourceCacheOrphans =
+    tables.has("source_cache") && tables.has("coupon_sources")
+      ? countOrCatch(
+          db,
+          `SELECT COUNT(*) AS c FROM source_cache sc
+             LEFT JOIN coupon_sources src ON src.id = sc.source_id
+             WHERE src.id IS NULL`,
+        )
+      : null;
+  checks.push({
+    name: "source_cache_source_orphans",
+    ok: sourceCacheOrphans === 0,
+  });
+
+  const sourceFetchLogOrphans =
+    tables.has("source_fetch_log") && tables.has("coupon_sources")
+      ? countOrCatch(
+          db,
+          `SELECT COUNT(*) AS c FROM source_fetch_log fl
+             LEFT JOIN coupon_sources src ON src.id = fl.source_id
+             WHERE src.id IS NULL`,
+        )
+      : null;
+  checks.push({
+    name: "source_fetch_log_source_orphans",
+    ok: sourceFetchLogOrphans === 0,
   });
 
   if (tables.has("coupon_results")) {

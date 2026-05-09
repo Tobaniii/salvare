@@ -181,8 +181,85 @@ describe("initSchema", () => {
     expect(count).toBe(3);
   });
 
-  it("EXPECTED_SCHEMA_VERSION reflects the v0.27.0 bump", () => {
-    expect(EXPECTED_SCHEMA_VERSION).toBe("2");
+  it("EXPECTED_SCHEMA_VERSION reflects the v0.29.0 bump", () => {
+    expect(EXPECTED_SCHEMA_VERSION).toBe("3");
+  });
+
+  it("creates source_cache and source_fetch_log tables (v0.29.0)", () => {
+    const db = makeMemoryDb();
+    const tables = listTables(db);
+    expect(tables).toContain("source_cache");
+    expect(tables).toContain("source_fetch_log");
+  });
+
+  it("creates the expected source cache/log indexes", () => {
+    const db = makeMemoryDb();
+    const indexes = listIndexes(db);
+    expect(indexes).toContain("idx_source_cache_expires_at");
+    expect(indexes).toContain("idx_source_fetch_log_source_attempt");
+    expect(indexes).toContain("idx_source_fetch_log_source_key_attempt");
+  });
+
+  it("source_cache rejects an invalid source_id reference", () => {
+    const db = makeMemoryDb();
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO source_cache
+             (source_id, cache_key, fetched_at, expires_at, status)
+             VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "no-such-source",
+          "k",
+          "2026-05-09T00:00:00.000Z",
+          "2026-05-09T01:00:00.000Z",
+          "ok",
+        ),
+    ).toThrow();
+  });
+
+  it("source_fetch_log rejects an invalid source_id reference", () => {
+    const db = makeMemoryDb();
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO source_fetch_log
+             (source_id, cache_key, attempted_at, outcome)
+             VALUES (?, ?, ?, ?)`,
+        )
+        .run("no-such-source", "k", "2026-05-09T00:00:00.000Z", "ok"),
+    ).toThrow();
+  });
+
+  it("coupon_sources delete is restricted while source_cache references it", () => {
+    const db = makeMemoryDb();
+    db.prepare(
+      `INSERT INTO source_cache
+         (source_id, cache_key, fetched_at, expires_at, status)
+         VALUES (?, ?, ?, ?, ?)`,
+    ).run(
+      "seed",
+      "k",
+      "2026-05-09T00:00:00.000Z",
+      "2026-05-09T01:00:00.000Z",
+      "ok",
+    );
+    expect(() =>
+      db.prepare("DELETE FROM coupon_sources WHERE id = 'seed'").run(),
+    ).toThrow();
+  });
+
+  it("coupon_sources delete is restricted while source_fetch_log references it", () => {
+    const db = makeMemoryDb();
+    db.prepare(
+      `INSERT INTO source_fetch_log
+         (source_id, cache_key, attempted_at, outcome)
+         VALUES (?, ?, ?, ?)`,
+    ).run("seed", "k", "2026-05-09T00:00:00.000Z", "ok");
+    expect(() =>
+      db.prepare("DELETE FROM coupon_sources WHERE id = 'seed'").run(),
+    ).toThrow();
   });
 
   it("coupon_code_sources rejects an invalid source_id reference", () => {
