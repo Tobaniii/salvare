@@ -171,6 +171,90 @@ describe("verifyDatabase", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("reports a missing source_cache table as a failed check", () => {
+    const db = makeDb();
+    db.exec("DROP TABLE source_cache");
+    const result = verifyDatabase(db);
+    expect(result.ok).toBe(false);
+    const tablesCheck = result.checks.find((c) => c.name === "tables_present");
+    expect(tablesCheck?.ok).toBe(false);
+  });
+
+  it("reports a missing source_fetch_log table as a failed check", () => {
+    const db = makeDb();
+    db.exec("DROP TABLE source_fetch_log");
+    const result = verifyDatabase(db);
+    expect(result.ok).toBe(false);
+    const tablesCheck = result.checks.find((c) => c.name === "tables_present");
+    expect(tablesCheck?.ok).toBe(false);
+  });
+
+  it("reports a missing source cache/log index as a failed check", () => {
+    const db = makeDb();
+    db.exec("DROP INDEX idx_source_cache_expires_at");
+    const result = verifyDatabase(db);
+    expect(result.ok).toBe(false);
+    const idxCheck = result.checks.find((c) => c.name === "indexes_present");
+    expect(idxCheck?.ok).toBe(false);
+  });
+
+  it("fails when a source_cache row references a missing source", () => {
+    const db = makeDb();
+    db.pragma("foreign_keys = OFF");
+    db.prepare(
+      `INSERT INTO source_cache
+         (source_id, cache_key, fetched_at, expires_at, status)
+         VALUES (?, ?, ?, ?, ?)`,
+    ).run(
+      "no-such-source",
+      "k",
+      "2026-05-09T00:00:00.000Z",
+      "2026-05-09T01:00:00.000Z",
+      "ok",
+    );
+    db.pragma("foreign_keys = ON");
+    const result = verifyDatabase(db);
+    const orphanCheck = result.checks.find(
+      (c) => c.name === "source_cache_source_orphans",
+    );
+    expect(orphanCheck?.ok).toBe(false);
+    expect(result.ok).toBe(false);
+  });
+
+  it("fails when a source_fetch_log row references a missing source", () => {
+    const db = makeDb();
+    db.pragma("foreign_keys = OFF");
+    db.prepare(
+      `INSERT INTO source_fetch_log
+         (source_id, cache_key, attempted_at, outcome)
+         VALUES (?, ?, ?, ?)`,
+    ).run("no-such-source", "k", "2026-05-09T00:00:00.000Z", "ok");
+    db.pragma("foreign_keys = ON");
+    const result = verifyDatabase(db);
+    const orphanCheck = result.checks.find(
+      (c) => c.name === "source_fetch_log_source_orphans",
+    );
+    expect(orphanCheck?.ok).toBe(false);
+    expect(result.ok).toBe(false);
+  });
+
+  it("passes when source_cache contains expired-but-valid rows", () => {
+    const db = makeDb();
+    db.prepare(
+      `INSERT INTO source_cache
+         (source_id, cache_key, fetched_at, expires_at, status)
+         VALUES (?, ?, ?, ?, ?)`,
+    ).run(
+      "seed",
+      "k",
+      "2026-05-09T00:00:00.000Z",
+      "2026-05-09T00:00:00.001Z",
+      "ok",
+    );
+    const result = verifyDatabase(db);
+    expect(result.ok).toBe(true);
+  });
+
   it("formatVerifyReport output does not leak codes, paths, env, or headers", () => {
     const db = makeDb();
     const storeId = insertStore(db, "leakrender.example");

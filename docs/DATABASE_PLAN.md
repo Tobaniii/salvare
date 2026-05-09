@@ -178,6 +178,26 @@ The three existing local coupon-code writers now record provenance into `coupon_
 - Public response shapes are unchanged: `/coupons`, `/admin/coupons`, `/admin/import/apply/coupons`, `/admin/export/coupons`, `db:export`, and `db:import` JSON shapes are byte-compatible with v0.27. Extension behavior, ranking, admin UI, and result history are untouched.
 - `db:verify` is unchanged: the v0.27 FK orphan checks already cover the only failure modes introduced by writing into `coupon_code_sources`. Missing provenance for a `coupon_codes` row remains allowed (backward compatible with DBs initialized under v0.27).
 
+## 9d. v0.29.0 — source cache + rate-limit foundation
+
+Internal cache and rate-limit primitives for future trusted source ingestion landed at the schema and helper layer in v0.29.0. No fetcher, no network calls, no provider adapters, no source endpoints, and no UI — only the tables and pure decision-only helpers a future v0.30+ adapter must satisfy under [`docs/SOURCE_POLICY.md`](SOURCE_POLICY.md) §6.
+
+- New tables (additive; existing tables unchanged):
+  - `source_cache(source_id → coupon_sources ON DELETE RESTRICT, cache_key, fetched_at, expires_at, status, body_sha256, metadata_json, PRIMARY KEY(source_id, cache_key))`. `status` is constrained to `ok | empty | error`. There is no `body_text` column — raw response bodies are not stored. `body_sha256` holds a 64-char lowercase hex hash. `metadata_json` is bounded (≤2KB serialized, ≤16 keys, ≤200-char string values) and validated against an allowlisted key shape; auth/credential-shaped keys (`authorization`, `cookie`, `set-cookie`, `token`, `bearer`, `password`, `secret`, `session`, `api-key`, `x-api-key`, …) are rejected.
+  - `source_fetch_log(id, source_id → coupon_sources ON DELETE RESTRICT, cache_key, attempted_at, outcome, status_code, error_code, duration_ms)`. `outcome` is constrained to `ok | empty | error | rate_limited | cache_hit`. `error_code` is a short token (`/^[a-z0-9][a-z0-9_-]{0,63}$/`), never a freeform message. No request/response payloads, headers, cookies, or stack traces are stored.
+  - Indexes: `idx_source_cache_expires_at`, `idx_source_fetch_log_source_attempt`, `idx_source_fetch_log_source_key_attempt`.
+- `EXPECTED_SCHEMA_VERSION` bumped from `"2"` to `"3"`. `initSchema` keeps its existing additive-and-idempotent pattern (`CREATE TABLE IF NOT EXISTS` plus the `schema_meta` `INSERT … ON CONFLICT DO UPDATE`), so v0.27/v0.28 DBs upgrade in place on next server boot or `npm run db:init` without data loss. No destructive migration.
+- Pure helpers live in [`server/db-source-cache.ts`](../server/db-source-cache.ts):
+  - `recordSourceFetchAttempt`, `getLastSourceFetch` — write/read the fetch log.
+  - `canFetchSourceNow({ sourceId, cacheKey, minIntervalMs }, now)` — decision-only: blocks unknown sources, fresh cache entries, and recent attempts within `minIntervalMs`. Returns a structured reason and `retryAfterMs`. Performs no network I/O.
+  - `upsertSourceCacheEntry`, `getSourceCacheEntry`, `pruneExpiredSourceCache`, `getSourceCacheSummary` — manage and inspect cache rows. Cache lookups expose explicit `fresh`/`expired` booleans against the caller-supplied clock.
+  - All helpers accept an explicit `now` clock for deterministic testing and reuse `validateSourceId` from `db-sources.ts` for source IDs.
+- `db:verify` extends:
+  - `tables_present` covers `source_cache` and `source_fetch_log`.
+  - `indexes_present` covers the three new indexes above.
+  - Two new orphan checks fail-on-orphan but **do not** fail on expired cache rows: `source_cache_source_orphans`, `source_fetch_log_source_orphans`.
+- Public API response shapes (`/coupons`, `/admin/coupons`, `/admin/coupon-stats`, `/admin/export/*`, `/admin/import/*`, `/results`, `/health`), export/import JSON shapes, ranking, admin UI, and extension behavior are **unchanged**.
+
 ## 10. Out of scope
 
 - Hosted database, replication, or remote sync.
