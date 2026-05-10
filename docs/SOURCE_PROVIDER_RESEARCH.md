@@ -1,0 +1,516 @@
+# Salvare Source Provider Research — v0.31.0
+
+This document evaluates candidate coupon source providers, APIs, and feeds for Salvare's first real trusted source integration. It is research-only: no adapter, no network fetching, no API keys, and no schema changes are introduced in this milestone. The recommendation here informs v0.32.0 implementation work.
+
+All details marked **[needs verification]** are based on public documentation and general knowledge of the provider as of the research date (2026-05-11). Provider terms, pricing, API schemas, and approval processes change — verify from official sources before any implementation begins.
+
+This document must be read alongside [`docs/SOURCE_POLICY.md`](SOURCE_POLICY.md). Any integration work in v0.32.0+ must comply with that policy in full before a line of code is written.
+
+---
+
+## 1. Scope and methodology
+
+### What this doc covers
+
+- Nine candidate providers evaluated against Salvare's source policy and architectural constraints.
+- A primary recommendation and backup for v0.32.0 prototyping.
+- A terms and safety checklist to complete before enabling any live integration.
+- An implementation preview describing the intended v0.32.0 integration shape.
+
+### Evaluation criteria
+
+For each provider:
+
+1. **Type** — API, feed, affiliate network, aggregator, partner platform.
+2. **Access requirements** — account approval, API key, commercial relationship.
+3. **Data shape** — which fields are available and how they map to `SourceAdapterCandidate`.
+4. **Policy fit** — alignment with `SOURCE_POLICY.md` §4 allowed source types.
+5. **Risks and unknowns** — what must be verified before implementation.
+6. **v0.32.0 candidate?** — primary / backup / lower-priority / no.
+
+### What Salvare needs from a provider
+
+- Coupon codes (not just affiliate links) queryable by merchant domain.
+- Documented API or structured feed with clear permitted-use terms.
+- Response fields mappable to `SourceAdapterCandidate`: `domain`, `code`, `label`, `expiresAt`, `sourceUrl`, `confidence`.
+- Rate limits, caching TTLs, and kill-switch compatibility (source_cache / source_fetch_log).
+- Terms that explicitly permit programmatic candidate fetching for local automated checkout testing.
+
+---
+
+## 2. Provider evaluations
+
+### 2.1 FMTC
+
+**Type:** Coupon data aggregator — commercial REST API
+
+FMTC (For Me To Coupon) is a B2B coupon data provider that aggregates merchant coupon codes from multiple affiliate networks and normalizes them into a queryable feed. Their product is designed specifically for coupon comparison and testing tools — Salvare's use case.
+
+**Access requirements:**
+- Commercial API subscription required. Pricing is not publicly listed — contact FMTC sales. **[needs verification]**
+- API key issued after account setup.
+- No per-merchant approval required; data covers FMTC's aggregated merchant network.
+- Contact and account creation at fmtc.co.
+
+**Data shape (field names and response format need verification from current FMTC API docs):**
+
+| Provider field | SourceAdapterCandidate field | Notes |
+|---|---|---|
+| Merchant domain / URL | `domain` | May need hostname extraction |
+| Coupon code | `code` | |
+| Description / title | `label` | |
+| End / expiry date | `expiresAt` | |
+| FMTC offer URL | `sourceUrl` | Not tracking link |
+| — | `confidence` | Not provided; Salvare assigns default |
+
+**Policy fit:** `SOURCE_POLICY.md` §4 "Official APIs" or "Licensed or partner feeds" — fits if the commercial agreement explicitly authorizes automated candidate ingestion and checkout testing (not just display/referral). Verify terms before implementation.
+
+**Risks and unknowns:**
+- Commercial pricing is opaque — may be cost-prohibitive for a local/portfolio project.
+- Terms must confirm that applying fetched codes on a real checkout is permitted, not just displaying them for referral.
+- Affiliate network source metadata in the response (affiliate link, network attribution) must be discarded before any candidate reaches winner selection.
+- Domain resolution: FMTC may identify merchants by name or ID rather than canonical domain — normalization step needed. **[needs verification]**
+- API versioning, rate limits, and response pagination need verification from current FMTC docs.
+
+**v0.32.0 candidate?** **Backup / alternative.** Purpose-built for this use case and best data quality, but the commercial subscription barrier makes Awin a lower-friction first prototype.
+
+---
+
+### 2.2 LinkMyDeals
+
+**Type:** Coupon and deal feed aggregator — publisher platform
+
+LinkMyDeals provides curated deal and coupon data to publishers and comparison sites via API and structured feeds.
+
+**Access requirements:**
+- Publisher account application required. Approval criteria (minimum traffic, audience size) not publicly documented. **[needs verification]**
+- API key issued after approval.
+- Direct contact likely required for API access details.
+
+**Data shape (needs verification from current LinkMyDeals publisher docs):**
+
+| Provider field | SourceAdapterCandidate field | Notes |
+|---|---|---|
+| Merchant website URL | `domain` | Hostname extraction needed |
+| Coupon code | `code` | May be absent for non-code deals |
+| Title / description | `label` | |
+| End date | `expiresAt` | |
+| Offer URL | `sourceUrl` | Not tracking link |
+| — | `confidence` | Not provided; Salvare assigns default |
+
+**Policy fit:** §4 "Official APIs" or "Licensed or partner feeds" — fits if terms permit automated candidate fetching.
+
+**Risks and unknowns:**
+- US merchant coverage is unclear; the platform appears EU/UK-heavy. **[needs verification]**
+- Not all deals include a coupon code — Salvare needs code-type filtering.
+- API endpoint, authentication scheme, and field names need verification from current docs.
+- Publisher approval process and access timeline are opaque.
+- Terms must explicitly permit automated checkout testing.
+
+**v0.32.0 candidate?** Lower priority — market coverage and publisher access terms need verification before committing to this provider.
+
+---
+
+### 2.3 CouponAPI.org
+
+**Type:** Third-party coupon REST API
+
+CouponAPI.org provides a simple REST API for querying coupon codes by merchant or domain.
+
+**Access requirements:**
+- API key registration. May be self-service or by request — process needs verification. **[needs verification]**
+- May have a free tier with rate limits. **[needs verification]**
+
+**Data shape (needs verification from current CouponAPI.org docs):**
+
+| Provider field | SourceAdapterCandidate field | Notes |
+|---|---|---|
+| Store / domain identifier | `domain` | May need normalization |
+| Coupon code | `code` | |
+| Description | `label` | |
+| Expiry date | `expiresAt` | |
+| Offer URL | `sourceUrl` | If available |
+| — | `confidence` | Not provided; Salvare assigns default |
+
+**Policy fit:** §4 "Official APIs" — fits if terms permit programmatic candidate ingestion.
+
+**Risks and unknowns:**
+- Provider size, reliability, and long-term maintenance status are unclear.
+- Data quality, deduplication, and coverage breadth are unverified.
+- API stability, versioning, and active development status need verification.
+- Terms of use need careful review — particularly around automated checkout application.
+- Smaller operator compared to major affiliate network APIs.
+
+**v0.32.0 candidate?** Lower priority — reliability and terms need verification; smaller network than major affiliate providers.
+
+---
+
+### 2.4 Rakuten Advertising Coupon Feed API
+
+**Type:** Affiliate network — coupon feed / promotional data
+
+Rakuten Advertising (formerly LinkShare) is one of the largest US affiliate networks. Their publisher platform provides promotional data feeds including coupon codes for network merchants. Historically delivered as structured text/CSV feeds; API availability and format may have evolved. **[needs verification of current format]**
+
+**Access requirements:**
+- Rakuten Advertising publisher account required (application + approval at rakutenadvertising.com).
+- Per-merchant "join program" approval required to access that merchant's feed data.
+- Feed/API credentials issued per publisher account — free to approved publishers, no separate commercial subscription.
+
+**Data shape (field names and format need verification from current Rakuten publisher docs):**
+
+| Provider field | SourceAdapterCandidate field | Notes |
+|---|---|---|
+| Merchant URL / domain | `domain` | May require merchant ID → domain mapping |
+| Coupon / promo code | `code` | |
+| Description | `label` | |
+| End date | `expiresAt` | |
+| Offer URL | `sourceUrl` | Not tracking link |
+| — | `confidence` | Not provided; Salvare assigns default |
+
+**Policy fit:** §4 "Official APIs" or "Licensed or partner feeds" — fits if Rakuten publisher terms permit automated candidate fetching and checkout testing (not just display/referral links).
+
+**Risks and unknowns:**
+- Per-merchant join approval required — initial merchant coverage limited to approved programs.
+- Domain resolution: Rakuten identifies merchants by ID; mapping to canonical domain requires a separate merchant-info query or lookup table. **[needs verification]**
+- Affiliate tracking links in the feed response must be discarded before any candidate data reaches winner selection.
+- Feed format (CSV vs REST API, current field names) needs verification from Rakuten's current publisher docs.
+- Terms must confirm automated checkout testing is permitted.
+
+**v0.32.0 candidate?** Backup. Large, established US network, but per-merchant approval overhead and domain resolution complexity make it a second-wave integration after Awin.
+
+---
+
+### 2.5 Awin Offers API
+
+**Type:** Affiliate network — REST API
+
+Awin (formerly Affiliate Window) is a major global affiliate network with strong UK/EU presence and growing US merchant coverage. Their Offers API returns promotions — including voucher/coupon-code type offers — from merchant programs in their network. The API is designed for programmatic consumption by publishers.
+
+**Access requirements:**
+- Awin publisher account required (apply at awin.com — application reviewed typically within a few days **[needs verification of current timeline]**).
+- OAuth token or API key issued per publisher account after approval.
+- Free to publishers — no separate commercial subscription required.
+- Per-merchant program join required to access that merchant's offers.
+- Public API documentation available at developer.awin.com (authentication required for full API reference **[verify current public access]**).
+
+**Data shape (field names need verification from current Awin API docs at developer.awin.com):**
+
+| Provider field | SourceAdapterCandidate field | Notes |
+|---|---|---|
+| `merchantUrl` hostname | `domain` | Normalize to bare hostname |
+| `code` | `code` | Voucher/promo code |
+| `title` or `description` | `label` | |
+| `endDate` | `expiresAt` | |
+| `merchantUrl` or offer URL | `sourceUrl` | Not affiliate tracking link |
+| — | `confidence` | Not provided; Salvare assigns default |
+
+Filter to `promotionType = 'voucher'` (or equivalent code-type field) before parsing rows. Non-code promotions (cashback, free delivery without code, etc.) should be excluded. **[Verify `promotionType` values and filter field from current Awin API docs]**
+
+**Policy fit:** §4 "Official APIs" — maps directly to this category. The Offers API is designed for programmatic publisher consumption. Requires terms review to confirm automated checkout testing is permitted (not just coupon display or affiliate link referral).
+
+**Risks and unknowns:**
+- Per-merchant program join required — initial merchant coverage limited to approved programs. Build out merchant join coverage incrementally.
+- US merchant coverage is smaller than Rakuten; Awin is EU-heavy. Evaluate coverage for target merchant set before committing.
+- Must filter `promotionType` correctly — unfiltered results will include cashback and other non-code promotions.
+- Affiliate tracking links in the response must be discarded and must not reach winner selection.
+- Current auth scheme (OAuth2 vs API key token), pagination approach, rate limits, and exact field names need verification from developer.awin.com.
+- Terms review: confirm automated coupon code application on a real checkout is permitted under Awin's publisher agreement, not just display or referral traffic generation.
+
+**v0.32.0 candidate?** **Yes — primary recommendation.** Clean REST/JSON API, documented publisher program (no commercial fee), offer-type filtering, response shape maps well to `SourceAdapterCandidate`, compatible with source_cache/fetch_log architecture, and can be mocked for all tests before live account approval.
+
+---
+
+### 2.6 impact.com Promotions API
+
+**Type:** Partnership management platform — REST API
+
+impact.com (formerly Impact Radius) is a major US-focused partnership and affiliate management platform. Their API includes promotions and promo codes from managed merchant programs.
+
+**Access requirements:**
+- impact.com publisher/partner account required (application + approval at app.impact.com).
+- API credentials (Account SID + auth token) issued per publisher account.
+- Free to publishers; enterprise features are commercial.
+- Per-merchant program join required for merchant-specific promo data.
+
+**Data shape (needs verification from current impact.com developer docs):**
+
+| Provider field | SourceAdapterCandidate field | Notes |
+|---|---|---|
+| Advertiser domain | `domain` | May need normalization |
+| Promo code | `code` | May be absent for non-code promotions |
+| Description / terms | `label` | |
+| End date | `expiresAt` | |
+| Offer URL | `sourceUrl` | Not tracking link |
+| — | `confidence` | Not provided; Salvare assigns default |
+
+**Policy fit:** §4 "Official APIs" — fits if terms permit automated candidate fetching and checkout testing.
+
+**Risks and unknowns:**
+- Per-merchant program join adds initial setup overhead.
+- Promo code field availability may not be universal across all advertiser programs — needs verification.
+- US-centric merchant network; weaker EU coverage.
+- Terms review: confirm automated checkout testing is permitted, not just referral-link traffic.
+- Current API endpoint details and field names need verification from developer.impact.com.
+
+**v0.32.0 candidate?** Moderate — solid REST API and good US merchant coverage, but per-merchant approval overhead and terms verification make it a better second-wave integration after Awin is prototyped.
+
+---
+
+### 2.7 Admitad / Mitgo
+
+**Type:** Affiliate network — API/feed
+
+Admitad (now part of Mitgo group following a 2022 rebranding) is an affiliate network with strong presence in Europe, Russia, CIS, and Asia. They provide coupon and deal data feeds and APIs for publishers.
+
+**Access requirements:**
+- Mitgo/Admitad publisher account required (application and approval — process needs verification given the Mitgo rebranding).
+- API key issued after account approval.
+- Per-merchant program join required for merchant-specific coupon data.
+
+**Data shape (field names and API endpoint need verification from current Mitgo developer docs — rebranding may have changed documentation location):**
+
+| Provider field | SourceAdapterCandidate field | Notes |
+|---|---|---|
+| Store / merchant domain | `domain` | |
+| Coupon code | `code` | |
+| Title / description | `label` | |
+| End date | `expiresAt` | |
+| Offer URL | `sourceUrl` | |
+| — | `confidence` | Not provided; Salvare assigns default |
+
+**Policy fit:** §4 "Official APIs" or "Licensed or partner feeds" — fits if terms permit automated candidate ingestion.
+
+**Risks and unknowns:**
+- US merchant coverage is limited — primarily EU/Asia network.
+- Mitgo rebranding creates documentation uncertainty — current API docs URL and field names need verification.
+- English-language API documentation quality is unverified.
+- Terms review needed for automated checkout testing use case.
+- Lower-priority for US-focused merchant coverage.
+
+**v0.32.0 candidate?** Lower priority — limited US coverage and rebranding-related documentation uncertainty. Revisit after Awin is integrated.
+
+---
+
+### 2.8 Sovrn Commerce
+
+**Type:** Publisher monetization platform / affiliate ecosystem
+
+Sovrn Commerce (formerly VigLink; acquired by Sovrn in 2018) provides link monetization and affiliate network access for publishers. Its primary product is automated conversion of outbound links into affiliate links — not a dedicated coupon/code feed.
+
+**Access requirements:**
+- Sovrn publisher account required.
+- API key issued after account approval.
+- Merchant data API access varies by account tier. **[needs verification]**
+
+**Data shape:** Sovrn's primary model is link rewriting and affiliate attribution, not structured coupon-code delivery. Whether they expose a queryable coupon/promo code feed is unverified — this is the fundamental uncertainty for this provider.
+
+**Policy fit:** Unclear — does not obviously map to any §4 category until it is confirmed that Sovrn offers a structured coupon-code API/feed (as opposed to only link monetization).
+
+**Risks and unknowns:**
+- Not primarily a coupon-code source — relevance to Salvare's use case is uncertain until a structured code feed is confirmed.
+- Requires investigation to determine if a promo-code API/feed exists at all.
+- Affiliate link conversion is the core product; applying that model to Salvare would require careful separation to ensure affiliate metadata never influences winner selection.
+
+**v0.32.0 candidate?** **No.** Not primarily a coupon-code source. Requires significant investigation to even establish relevance. Do not include in v0.32.0 scope.
+
+---
+
+### 2.9 Skimlinks
+
+**Type:** Affiliate monetization platform / publisher network
+
+Skimlinks is a UK-based affiliate marketing platform (acquired by Taboola in 2020) that automatically converts outbound links to affiliate links. They have a publisher API and merchant data, but their primary product is link monetization, not structured coupon/code feeds.
+
+**Access requirements:**
+- Skimlinks publisher account required (application + approval by Skimlinks).
+- API key issued per approved publisher account.
+- Taboola acquisition may have changed product availability — verify current publisher program status. **[needs verification]**
+
+**Data shape:** Like Sovrn Commerce, Skimlinks is link-monetization first. Whether they provide a queryable coupon/promo-code feed is unverified — this is the fundamental uncertainty.
+
+**Policy fit:** Unclear — same issue as Sovrn: does not obviously map to §4 until a structured code feed is confirmed.
+
+**Risks and unknowns:**
+- Not primarily a coupon-code source — structured promo-code feed availability is unverified.
+- Taboola acquisition may have changed API offerings and publisher program status.
+- Requires investigation to establish whether a code feed exists at all.
+- If a code feed is found: terms review and affiliate-metadata-isolation controls would both be required.
+
+**v0.32.0 candidate?** **No.** Not primarily a coupon-code source. Requires investigation to establish relevance. Do not include in v0.32.0 scope.
+
+---
+
+## 3. Recommendation
+
+### 3.1 Summary table
+
+| Provider | Candidate? | Rationale |
+|---|---|---|
+| Awin Offers API | **Primary** | REST/JSON, publisher program, offer-type filter, policy-compatible |
+| FMTC | **Backup** | Purpose-built for this use case; commercial subscription required |
+| Rakuten Advertising | Second wave | Large US network; per-merchant approval + domain resolution complexity |
+| impact.com | Second wave | Solid US API; per-merchant overhead; better after Awin is proven |
+| LinkMyDeals | Lower priority | Coverage and access terms need verification |
+| CouponAPI.org | Lower priority | Reliability and terms need verification |
+| Admitad / Mitgo | Lower priority | Limited US coverage; rebranding uncertainty |
+| Sovrn Commerce | **No** | Not primarily a coupon-code source |
+| Skimlinks | **No** | Not primarily a coupon-code source |
+
+---
+
+### 3.2 Primary recommendation: Awin Offers API
+
+**Rationale:**
+
+1. **REST/JSON API, not a CSV feed.** Awin's Offers API returns structured JSON — no custom CSV parsing, no column-index brittleness. The response shape maps directly to `SourceAdapterCandidate` fields.
+2. **Offer-type filtering.** Awin includes a `promotionType` (or equivalent) discriminator that allows filtering to voucher/code-type offers only. Non-code promotions (cashback, free delivery) are excluded before parsing.
+3. **Publisher program with no commercial subscription fee.** Publisher accounts are free at awin.com. No separate commercial licensing required to access the API — unlike FMTC, which requires a paid subscription.
+4. **Documented API.** API documentation is available at developer.awin.com (authentication required for full reference). The API is designed for programmatic publisher use — this is not repurposing a display-only tool.
+5. **Policy compatibility.** Maps to `SOURCE_POLICY.md` §4 "Official APIs." Offer response includes merchant domain/URL, code, dates, and description — all fields needed without needing to carry affiliate tracking links into the candidate shape.
+6. **Mock-first development.** The HTTP fetch layer is injectable; v0.32.0 can be written entirely against fixture responses. Live account approval is not a prerequisite for writing or testing the adapter code.
+7. **Kill-switch compatible.** `SALVARE_ENABLE_AWIN_SOURCE` feature flag and `coupon_sources.enabled` DB column both work as kill switches without a rebuild.
+
+**Credentials / access needed:**
+
+- Awin publisher account — apply at awin.com. **[Verify current approval process and timeline from Awin's publisher registration page before starting v0.32.0]**
+- OAuth token or API key — issued after publisher account approval.
+- Per-merchant program join — required for each merchant whose offers will be fetched. Plan which merchants to join before v0.32.0 begins.
+
+**What stays mocked until access is approved:**
+
+- All HTTP fetch calls in unit tests and smoke tests — injected fixture responses only.
+- `source_cache` and `source_fetch_log` entries — driven by mock fetch outcomes, not live API calls.
+- No live Awin API calls in CI at any point before the adapter ships behind the feature flag.
+
+---
+
+### 3.3 Backup recommendation: FMTC
+
+**Rationale:**
+
+FMTC is purpose-built for coupon comparison and testing tools — the closest alignment with Salvare's use case of any evaluated provider. Their API is designed around querying by merchant domain, their data is normalized and deduplicated across multiple affiliate networks, and their product is explicitly intended for automated candidate lookup.
+
+**Why Awin comes first:**
+
+- FMTC requires a commercial subscription. Pricing is not publicly listed — it requires contacting FMTC sales. For a local/portfolio project this may be cost-prohibitive or slow to approve.
+- Awin's publisher program is accessible (no commercial subscription fee) and the API docs are publicly available.
+- FMTC remains the stronger option if Awin's merchant coverage proves insufficient or if commercial access to FMTC becomes available.
+
+**Credentials / access needed for FMTC:**
+
+- Commercial API subscription — contact fmtc.co. **[Verify current pricing, approval process, and use-case terms from FMTC directly before committing]**
+- API key issued after subscription setup.
+
+---
+
+## 4. Terms and safety checklist
+
+This checklist must be completed and documented before any live provider integration is enabled in v0.32.0. Each item must be marked verified with a source (e.g., "Awin Publisher Agreement §3.2, reviewed 2026-xx-xx") before the feature flag can be set to `true` in any environment other than local development with mocked HTTP.
+
+- [ ] **Review provider terms of service.** Confirm the publisher/API agreement explicitly permits automated, programmatic access to fetch coupon code data (not just display or referral-link generation).
+- [ ] **Confirm use-case permission.** Confirm that applying fetched codes on a real checkout (automated candidate testing to compare final totals) is permitted under the provider's terms — not just coupon display or affiliate click attribution.
+- [ ] **Review rate limit and robots policies.** Confirm Salvare's fetch cadence stays within documented per-source rate limits and respects any robots.txt or machine-readable directives. Configure `minIntervalMs` in `canFetchSourceNow` accordingly.
+- [ ] **No scraping prohibited sites.** The provider's API or feed endpoint is the fetch target. Salvare must never scrape merchant sites or provider websites directly.
+- [ ] **No login or session scraping.** No automated sign-in, session cookie injection, or authenticated scraping of any gated page.
+- [ ] **No CAPTCHA or bot-protection bypass.** If a fetch encounters CAPTCHA or bot protection, the fetch must fail cleanly (record `error` in `source_fetch_log`). No bypass attempt.
+- [ ] **No raw payload logging.** Raw API response bodies must not be written to logs, `source_fetch_log`, or `source_cache.metadata_json`. Only `body_sha256` (SHA-256 of the raw response) and allowlisted, size-bounded metadata fields may be stored — per the existing `db-source-cache.ts` constraints.
+- [ ] **Affiliate metadata does not influence winner selection.** Affiliate tracking links, payout rates, partner priority signals, commission attribution fields, and any monetization metadata in the provider response must be discarded before the candidate list is returned. They must never reach the ranking or winner-selection logic.
+- [ ] **Checkout-verified final total decides the winner.** Fetched codes are candidates only. Every candidate must be applied on the live checkout, the resulting grand total must be re-read, and the lowest verified `finalTotalCents` decides the winner — not the provider's advertised savings or priority.
+- [ ] **API key and credential hygiene.** API keys and tokens are passed via environment variable only. Never logged. Never committed. Never echoed in error messages, health responses, or `source_fetch_log` entries.
+- [ ] **Kill switch and allowlist.** The provider source must be registered in `coupon_sources` with `enabled = 1`. Setting `enabled = 0` or unsetting the feature-flag env var must immediately disable all fetches without a rebuild.
+
+---
+
+## 5. v0.32.0 Implementation Preview
+
+This section describes the intended implementation shape for the first live provider adapter (Awin as primary, FMTC as fallback). No code is written in this milestone. The preview exists so v0.32.0 has a clear contract before implementation begins.
+
+### 5.1 Feature flag and kill switch
+
+```
+SALVARE_ENABLE_AWIN_SOURCE=true
+```
+
+- Must be explicitly set to `true` to enable. Absent, empty, or any other value means disabled.
+- The Awin source row must also be present in `coupon_sources` with `type = 'api'` and `enabled = 1`.
+- Either lever alone must be sufficient to disable all fetches. Setting `enabled = 0` in the DB or unsetting the env var must both stop fetches without a rebuild.
+
+### 5.2 API key environment variable
+
+```
+SALVARE_AWIN_API_KEY=<token>
+```
+
+- Never logged.
+- Never committed.
+- Never echoed in error messages, health responses, or `source_fetch_log` entries.
+- Absence of this variable must prevent the adapter from activating even if the feature flag is set.
+- The `/health` endpoint must never expose whether or how the key is configured.
+
+### 5.3 Mock-first test strategy
+
+All unit and smoke tests use fixture/recorded HTTP responses. No live Awin API calls in CI.
+
+Suggested factory shape:
+
+```typescript
+// v0.32.0 — design sketch only, not implemented in this milestone
+function createAwinAdapter(
+  options: AwinAdapterOptions,
+  fetcher: (url: string, headers: Record<string, string>) => Promise<string>,
+): SourceAdapter
+```
+
+- `fetcher` is an injectable dependency. Tests pass a stub returning committed fixture JSON.
+- The live fetcher (e.g. Node `fetch`) is wired only in the server bootstrap path, gated by `SALVARE_ENABLE_AWIN_SOURCE` and `SALVARE_AWIN_API_KEY`.
+- Test fixtures are committed JSON files under `server/fixtures/` representing valid responses, empty results, error shapes, and edge cases (missing code field, non-voucher promotion type, etc.).
+
+### 5.4 source_cache and source_fetch_log integration
+
+Every Awin fetch must go through the existing v0.29.0 helpers before any network call:
+
+1. Call `canFetchSourceNow({ sourceId: 'awin', cacheKey, minIntervalMs })`.
+   - If blocked (fresh cache or recent attempt within `minIntervalMs`): return cached candidates or empty result; record `cache_hit` outcome in `source_fetch_log`.
+   - Configure `minIntervalMs` to respect Awin's documented rate limits. **[Verify rate limits from Awin API docs]**
+2. On fetch attempt: call `recordSourceFetchAttempt` before the network call.
+3. On success: call `upsertSourceCacheEntry` with `body_sha256` (SHA-256 of raw response body) and allowlisted metadata (e.g. `{ offer_count: N }` — no auth tokens, no raw body, no headers).
+4. On error: call `recordSourceFetchAttempt` with `outcome: 'error'` and a short `error_code` token (e.g. `http_4xx`, `timeout`, `parse_error`).
+
+### 5.5 Parse into SourceAdapterCandidate shape
+
+The Awin response parser must reuse the validation primitives already defined in `server/source-adapters.ts`:
+
+- `validateDomain`, `validateCode`, `validateLabel`, `validateExpiresAt`, `validateSourceUrl`, `validateConfidence`.
+- Filter to voucher/code-type `promotionType` before iterating rows. Discard non-code promotions silently.
+- Extract `domain` from merchant URL hostname — normalize to bare hostname (e.g. `example.com`), not full URL.
+- Drop all affiliate tracking link fields from parsed candidates. `sourceUrl` must be the merchant URL or Awin's canonical offer URL — never the affiliate tracking link.
+- Drop unknown fields silently per the existing `pickAllowedRow` pattern.
+- Emit redacted `{ index, reason }` errors for invalid rows — never echo payload field values.
+
+### 5.6 Preview before import — no automatic application
+
+Parsed candidates follow the existing preview→import discipline:
+
+- Parsed candidates are surfaced through an admin preview endpoint (analogous to the existing `POST /admin/import/preview/coupons`).
+- No automatic write to `coupon_codes` or `coupon_code_sources` on fetch.
+- The user reviews parsed candidates in the admin UI before any import step.
+- The explicit import step follows the existing `Preview → type IMPORT → Apply` gate.
+- Background auto-fetch, scheduled polling, and automatic import are out of scope for v0.32.0.
+
+### 5.7 No extension behavior change
+
+The extension's `GET /coupons?domain=` response shape and ranking behavior are unchanged. If Awin candidates are imported (via the preview→import gate), they enter the existing `coupon_codes` table alongside seed/admin codes and are returned by the same endpoint with the same ranking logic. No extension code, content script, popup, or store profile changes in v0.32.0.
+
+---
+
+## 6. Open questions before v0.32.0 begins
+
+The following must be answered — from official Awin documentation or direct inquiry — before v0.32.0 implementation starts:
+
+1. What is the current Awin Offers API auth scheme? (OAuth2 authorization code, API key header, or both?)
+2. What are the documented rate limits for the Offers API? (Requests per minute/hour per publisher account?)
+3. What is the exact `promotionType` value (or field name) used for voucher/coupon-code type promotions?
+4. Does the Offers API response include a bare merchant domain field, or only a full merchant URL requiring hostname extraction?
+5. Does the publisher agreement explicitly permit automated coupon code application on a checkout (not just display/referral)?
+6. What is the current publisher account approval timeline at awin.com?
+7. Are there any restrictions on querying offers for merchants the publisher has not yet joined? (i.e., can you discover merchant offers before joining, or only after per-merchant approval?)
