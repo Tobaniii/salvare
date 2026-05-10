@@ -1,0 +1,21 @@
+{
+  "sourceId": "fixture-json-example",
+  "items": [
+    {
+      "domain": "example.com",
+      "code": "WELCOME10",
+      "label": "10% off your first order",
+      "expiresAt": "2026-12-31",
+      "sourceUrl": "https://example.com/promo",
+      "confidence": 0.7
+    },
+    {
+      "domain": "shop.example.org",
+      "code": "FREESHIP",
+      "label": "Free standard shipping",
+      "expiresAt": "2026-09-30",
+      "sourceUrl": "https://shop.example.org/coupons",
+      "confidence": 0.5
+    }
+  ]
+}

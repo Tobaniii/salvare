@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Salvare local source-adapter HTML fixture</title>
+  </head>
+  <body>
+    <p>
+      Local deterministic fixture for the v0.30.0 HTML adapter. The adapter
+      only recognizes <code>&lt;li class="salvare-coupon" ...&gt;</code>
+      micro-format elements; everything else on this page is ignored.
+    </p>
+    <ul class="salvare-coupons">
+      <li
+        class="salvare-coupon"
+        data-domain="example.com"
+        data-code="HTML10"
+        data-label="10% off (HTML fixture)"
+        data-expires-at="2026-12-31"
+        data-source-url="https://example.com/html-promo"
+        data-confidence="0.6"
+      ></li>
+      <li
+        class="salvare-coupon"
+        data-domain="shop.example.org"
+        data-code="HTMLSHIP"
+        data-label="Free shipping (HTML fixture)"
+        data-expires-at="2026-09-30"
+        data-source-url="https://shop.example.org/html-coupons"
+        data-confidence="0.4"
+      ></li>
+    </ul>
+  </body>
+</html>
