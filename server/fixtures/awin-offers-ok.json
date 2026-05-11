@@ -1,0 +1,36 @@
+{
+  "offers": [
+    {
+      "merchantUrl": "https://shop.example/",
+      "code": "AWIN10",
+      "promotionType": "voucher",
+      "title": "10% off your first order",
+      "endDate": "2026-12-31",
+      "clickThroughUrl": "https://www.awin1.com/cread.php?awinmid=12345&clickref=ignore",
+      "trackingUrl": "https://www.awin1.com/awclick.php?id=99",
+      "commissionRate": 5.5,
+      "publisherId": "abc-123"
+    },
+    {
+      "merchantUrl": "https://shop.example/",
+      "voucherCode": "FREESHIP",
+      "promotionType": "voucher_code",
+      "description": "Free shipping over $50",
+      "validTo": "2026-09-30T23:59:59Z",
+      "deepLink": "https://www.awin1.com/cread.php?awinmid=12345&p=https%3A%2F%2Fshop.example"
+    },
+    {
+      "merchantUrl": "https://shop.example/",
+      "promotionType": "cashback",
+      "title": "5% cashback",
+      "endDate": "2026-12-31"
+    },
+    {
+      "merchantUrl": "https://other.example/",
+      "code": "OTHER15",
+      "promotionType": "voucher",
+      "title": "15% off everything",
+      "endDate": "2026-08-15"
+    }
+  ]
+}

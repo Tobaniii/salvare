@@ -102,7 +102,7 @@ export interface SourceAdapterOptions {
   sourceId: string;
 }
 
-interface RawRow {
+export interface RawRow {
   domain?: unknown;
   code?: unknown;
   label?: unknown;
@@ -135,7 +135,7 @@ function isAsciiPrintableNoSpace(value: string): boolean {
   return true;
 }
 
-function validateDomain(value: unknown): string | null {
+export function validateDomain(value: unknown): string | null {
   if (!isNonEmptyString(value)) return null;
   const lowered = value.trim().toLowerCase();
   if (lowered.length === 0 || lowered.length > DOMAIN_MAX) return null;
@@ -143,7 +143,7 @@ function validateDomain(value: unknown): string | null {
   return lowered;
 }
 
-function validateCode(value: unknown): string | null {
+export function validateCode(value: unknown): string | null {
   if (!isString(value)) return null;
   const trimmed = value.trim();
   if (trimmed.length < CODE_MIN || trimmed.length > CODE_MAX) return null;
@@ -151,7 +151,7 @@ function validateCode(value: unknown): string | null {
   return trimmed;
 }
 
-function validateLabel(value: unknown): { ok: true; value?: string } | { ok: false } {
+export function validateLabel(value: unknown): { ok: true; value?: string } | { ok: false } {
   if (value === undefined || value === null) return { ok: true };
   if (!isString(value)) return { ok: false };
   const trimmed = value.trim();
@@ -161,7 +161,7 @@ function validateLabel(value: unknown): { ok: true; value?: string } | { ok: fal
   return { ok: true, value: trimmed };
 }
 
-function validateExpiresAt(
+export function validateExpiresAt(
   value: unknown,
 ): { ok: true; value?: string } | { ok: false } {
   if (value === undefined || value === null) return { ok: true };
@@ -173,7 +173,7 @@ function validateExpiresAt(
   return { ok: true, value: trimmed };
 }
 
-function validateSourceUrl(
+export function validateSourceUrl(
   value: unknown,
 ): { ok: true; value?: string } | { ok: false } {
   if (value === undefined || value === null) return { ok: true };
@@ -185,7 +185,7 @@ function validateSourceUrl(
   return { ok: true, value: trimmed };
 }
 
-function validateConfidence(
+export function validateConfidence(
   value: unknown,
 ): { ok: true; value?: number } | { ok: false } {
   if (value === undefined || value === null) return { ok: true };
@@ -199,7 +199,7 @@ function defaultNow(): string {
   return new Date().toISOString();
 }
 
-function buildCandidate(
+export function buildCandidate(
   raw: RawRow,
   index: number,
   sourceId: string,
@@ -266,7 +266,7 @@ function buildCandidate(
   return candidate;
 }
 
-function pickAllowedRow(value: unknown): RawRow | null {
+export function pickAllowedRow(value: unknown): RawRow | null {
   if (value === null || typeof value !== "object") return null;
   const obj = value as Record<string, unknown>;
   const out: RawRow = {};

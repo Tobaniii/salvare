@@ -1,5 +1,22 @@
 # Salvare Source Provider Research — v0.31.0
 
+> **v0.32.0 status (2026-05-11):** A mocked, feature-flagged Awin Offers API
+> adapter spike landed in [`server/source-provider-awin.ts`](../server/source-provider-awin.ts)
+> and [`server/source-provider-config.ts`](../server/source-provider-config.ts).
+> The adapter is disabled by default, requires `SALVARE_SOURCE_PROVIDER_ENABLED=true`
+> plus a non-blank `SALVARE_AWIN_API_KEY` to activate, takes an injected
+> `fetcher` (no live HTTP from CI), strips affiliate/tracking fields before
+> emitting candidates, registers the `awin` row in `coupon_sources` only at
+> runtime (not in bootstrap), and writes only fetch-log + cache rows on each
+> attempt. **Not yet wired:** cache-read short-circuit, admin preview/import
+> for fetched candidates, and any live Awin account. Live access still
+> requires the §4 terms checklist below to be completed before the flag may
+> be enabled outside local development. The exact response shape used by the
+> parser is the documented sketch in §5.5 and is `[needs verification]`
+> against developer.awin.com once a publisher account exists; a regression
+> fixture from a real call should be added at that time.
+
+
 This document evaluates candidate coupon source providers, APIs, and feeds for Salvare's first real trusted source integration. It is research-only: no adapter, no network fetching, no API keys, and no schema changes are introduced in this milestone. The recommendation here informs v0.32.0 implementation work.
 
 All details marked **[needs verification]** are based on public documentation and general knowledge of the provider as of the research date (2026-05-11). Provider terms, pricing, API schemas, and approval processes change — verify from official sources before any implementation begins.

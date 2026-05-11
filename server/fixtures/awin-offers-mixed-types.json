@@ -1,0 +1,21 @@
+{
+  "offers": [
+    {
+      "merchantUrl": "not-a-url",
+      "code": "BADURL",
+      "promotionType": "voucher"
+    },
+    {
+      "merchantUrl": "https://shop.example/",
+      "code": "missing space code",
+      "promotionType": "voucher"
+    },
+    null,
+    {
+      "merchantUrl": "https://shop.example/",
+      "code": "GOODONE",
+      "promotionType": "voucher",
+      "title": "Survives the bad rows"
+    }
+  ]
+}
