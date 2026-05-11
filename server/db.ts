@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 export type Db = Database.Database;
 
-export const EXPECTED_SCHEMA_VERSION = "3";
+export const EXPECTED_SCHEMA_VERSION = "4";
 
 export const COUPON_SOURCE_TYPES = [
   "manual",
@@ -86,6 +86,7 @@ const SCHEMA_SQL = `
     status TEXT NOT NULL CHECK (status IN ('ok','empty','error')),
     body_sha256 TEXT,
     metadata_json TEXT,
+    candidates_json TEXT,
     PRIMARY KEY (source_id, cache_key)
   );
 
@@ -127,8 +128,22 @@ const DEFAULT_SOURCES: readonly DefaultSource[] = [
   { id: "import", name: "JSON import", type: "import" },
 ];
 
+function ensureSourceCacheCandidatesColumn(db: Db): void {
+  // v0.33.0 in-place upgrade for v0.29-vintage source_cache rows that lack
+  // the `candidates_json` column. SQLite has no `ADD COLUMN IF NOT EXISTS`,
+  // so introspect via PRAGMA and only ALTER when missing. Idempotent.
+  const cols = db.prepare(`PRAGMA table_info(source_cache)`).all() as Array<{
+    name: string;
+  }>;
+  const hasCol = cols.some((c) => c.name === "candidates_json");
+  if (!hasCol) {
+    db.exec(`ALTER TABLE source_cache ADD COLUMN candidates_json TEXT`);
+  }
+}
+
 export function initSchema(db: Db): void {
   db.exec(SCHEMA_SQL);
+  ensureSourceCacheCandidatesColumn(db);
   db.prepare(
     `INSERT INTO schema_meta (key, value) VALUES ('version', ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,

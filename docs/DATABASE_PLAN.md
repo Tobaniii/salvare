@@ -198,6 +198,20 @@ Internal cache and rate-limit primitives for future trusted source ingestion lan
   - Two new orphan checks fail-on-orphan but **do not** fail on expired cache rows: `source_cache_source_orphans`, `source_fetch_log_source_orphans`.
 - Public API response shapes (`/coupons`, `/admin/coupons`, `/admin/coupon-stats`, `/admin/export/*`, `/admin/import/*`, `/results`, `/health`), export/import JSON shapes, ranking, admin UI, and extension behavior are **unchanged**.
 
+## 9e. v0.33.0 — source_cache candidates column for read short-circuit
+
+Additive column on `source_cache` so the v0.32 mocked Awin provider adapter can return cached normalized candidates without re-invoking the fetcher.
+
+- New column (additive; existing tables and rows unchanged):
+  - `source_cache.candidates_json TEXT NULL`. Holds a JSON array of normalized `SourceAdapterCandidate` rows only — no raw provider response body, no headers, no cookies, no env values, no DB paths, no API keys. Bounded to ≤32 KB UTF-8 on write; oversized payloads are dropped (the cache-row write skips this column rather than corrupt it). On read, every element is re-validated with the v0.30 validators (`validateDomain`, `validateCode`, `validateLabel`, `validateExpiresAt`, `validateSourceUrl`, `validateConfidence`) and an exact `sourceId` equality check; any failure causes the caller to ignore the cache and re-fetch.
+- `EXPECTED_SCHEMA_VERSION` bumped from `"3"` to `"4"`. `initSchema` keeps its additive-and-idempotent pattern: `CREATE TABLE IF NOT EXISTS source_cache(... candidates_json TEXT)` for fresh DBs, plus a guarded `ALTER TABLE source_cache ADD COLUMN candidates_json TEXT` (introspected via `PRAGMA table_info(source_cache)`) for v0.29-vintage DBs that already have the table without the new column. No destructive migration. No data loss.
+- Helper updates in [`server/db-source-cache.ts`](../server/db-source-cache.ts):
+  - `SourceCacheUpsertInput` and `SourceCacheEntry` gain an optional `candidatesJson: string | null` field.
+  - `upsertSourceCacheEntry` validates the new field via `validateOptionalCandidatesJson` (string, ≤32 KB, parseable as a JSON array) and persists it in the same `INSERT … ON CONFLICT DO UPDATE` statement.
+  - `getSourceCacheEntry` and `rowToCacheEntry` surface the column unchanged for the caller; element-level revalidation is the adapter's responsibility.
+- `db:verify` checks (`tables_present`, `indexes_present`, orphan checks) are unchanged; column-level shape is not enforced and the cache is treated as untrusted on read.
+- Public API response shapes (`/coupons`, `/admin/coupons`, `/admin/coupon-stats`, `/admin/export/*`, `/admin/import/*`, `/results`, `/health`), export/import JSON shapes, ranking, admin UI, and extension behavior are **unchanged**.
+
 ## 10. Out of scope
 
 - Hosted database, replication, or remote sync.

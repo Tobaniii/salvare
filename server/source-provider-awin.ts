@@ -30,6 +30,7 @@
 import type { Db } from "./db";
 import { ensureCouponSource } from "./db-sources";
 import {
+  getSourceCacheEntry,
   recordSourceFetchAttempt,
   upsertSourceCacheEntry,
   type SourceFetchOutcome,
@@ -37,7 +38,12 @@ import {
 import {
   buildCandidate,
   pickAllowedRow,
+  validateConfidence,
   validateDomain,
+  validateExpiresAt,
+  validateLabel,
+  validateSourceUrl,
+  validateCode,
   type RawRow,
   type SourceAdapterCandidate,
   type SourceAdapterError,
@@ -135,6 +141,7 @@ export interface AwinAdapterResult {
   candidates: SourceAdapterCandidate[];
   errors: SourceAdapterError[];
   fetched: boolean;
+  cacheHit: boolean;
   durationMs: number;
 }
 
@@ -280,8 +287,75 @@ function disabledResult(
     candidates: [],
     errors: [],
     fetched: false,
+    cacheHit: false,
     durationMs,
   };
+}
+
+// Strict re-validation of a single cached candidate row. The cache is
+// intentionally treated as untrusted on read — even though our writers only
+// persist normalized candidates, on-disk state may have been corrupted or
+// edited locally. Any failure causes the caller to ignore the cache and
+// fall through to a fresh fetch.
+function revalidateCachedCandidate(
+  raw: unknown,
+  sourceId: string,
+  seen: Set<string>,
+): SourceAdapterCandidate | null {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  if (obj.sourceId !== sourceId) return null;
+  const domain = validateDomain(obj.domain);
+  if (domain === null) return null;
+  const code = validateCode(obj.code);
+  if (code === null) return null;
+  if (typeof obj.discoveredAt !== "string" || obj.discoveredAt.length === 0) {
+    return null;
+  }
+  const label = validateLabel(obj.label);
+  if (!label.ok) return null;
+  const expiresAt = validateExpiresAt(obj.expiresAt);
+  if (!expiresAt.ok) return null;
+  const sourceUrl = validateSourceUrl(obj.sourceUrl);
+  if (!sourceUrl.ok) return null;
+  const confidence = validateConfidence(obj.confidence);
+  if (!confidence.ok) return null;
+  const dedupeKey = `${sourceId}|${domain}|${code}`;
+  if (seen.has(dedupeKey)) return null;
+  seen.add(dedupeKey);
+  const out: SourceAdapterCandidate = {
+    domain,
+    code,
+    sourceId,
+    discoveredAt: obj.discoveredAt,
+  };
+  if (label.value !== undefined) out.label = label.value;
+  if (expiresAt.value !== undefined) out.expiresAt = expiresAt.value;
+  if (sourceUrl.value !== undefined) out.sourceUrl = sourceUrl.value;
+  if (confidence.value !== undefined) out.confidence = confidence.value;
+  return out;
+}
+
+function parseCachedCandidates(
+  candidatesJson: string | null,
+  sourceId: string,
+): SourceAdapterCandidate[] | null {
+  if (candidatesJson === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(candidatesJson);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed)) return null;
+  const seen = new Set<string>();
+  const out: SourceAdapterCandidate[] = [];
+  for (const row of parsed) {
+    const c = revalidateCachedCandidate(row, sourceId, seen);
+    if (c === null) return null;
+    out.push(c);
+  }
+  return out;
 }
 
 export function createAwinAdapter(options: AwinAdapterOptions): AwinAdapter {
@@ -331,6 +405,66 @@ export function createAwinAdapter(options: AwinAdapterOptions): AwinAdapter {
 
       ensureSourceRegistered();
 
+      // Cache-read short-circuit (v0.33.0). A fresh `ok`-status cache row
+      // with a parseable, re-validatable candidate array is returned
+      // without invoking the fetcher. Any failure here — missing column,
+      // expired entry, corrupt JSON, row-level revalidation failure —
+      // falls through to a fresh fetch. The cache is treated as untrusted
+      // input on read even though we own the writer.
+      if (options.db) {
+        try {
+          const lookup = getSourceCacheEntry(
+            options.db,
+            AWIN_SOURCE_ID,
+            cacheKey,
+            clock.nowIso(),
+          );
+          if (
+            lookup &&
+            lookup.fresh &&
+            lookup.entry.status === "ok" &&
+            lookup.entry.candidatesJson !== null
+          ) {
+            const cached = parseCachedCandidates(
+              lookup.entry.candidatesJson,
+              AWIN_SOURCE_ID,
+            );
+            if (cached !== null) {
+              const durationMs = clock.nowMs() - startedMs;
+              try {
+                recordSourceFetchAttempt(
+                  options.db,
+                  {
+                    sourceId: AWIN_SOURCE_ID,
+                    cacheKey,
+                    outcome: "cache_hit",
+                    statusCode: null,
+                    errorCode: null,
+                    durationMs,
+                  },
+                  clock.nowIso(),
+                );
+              } catch {
+                /* swallow */
+              }
+              return {
+                ok: true,
+                providerId: "awin",
+                sourceId: AWIN_SOURCE_ID,
+                outcome: "cache_hit",
+                candidates: cached,
+                errors: [],
+                fetched: false,
+                cacheHit: true,
+                durationMs,
+              };
+            }
+          }
+        } catch {
+          /* corrupt cache or schema mismatch — fall through to fetch */
+        }
+      }
+
       const url = buildAwinUrl(baseUrl, options.config.publisherId, domain);
       const headers: Record<string, string> = {
         Authorization: `Bearer ${apiKey}`,
@@ -373,6 +507,7 @@ export function createAwinAdapter(options: AwinAdapterOptions): AwinAdapter {
           candidates: [],
           errors: [],
           fetched: true,
+          cacheHit: false,
           durationMs,
         };
       }
@@ -407,6 +542,7 @@ export function createAwinAdapter(options: AwinAdapterOptions): AwinAdapter {
           candidates: [],
           errors: [],
           fetched: true,
+          cacheHit: false,
           durationMs,
         };
       }
@@ -443,6 +579,7 @@ export function createAwinAdapter(options: AwinAdapterOptions): AwinAdapter {
           candidates: [],
           errors: [],
           fetched: true,
+          cacheHit: false,
           durationMs,
         };
       }
@@ -481,6 +618,7 @@ export function createAwinAdapter(options: AwinAdapterOptions): AwinAdapter {
           candidates: [],
           errors: [],
           fetched: true,
+          cacheHit: false,
           durationMs,
         };
       }
@@ -554,6 +692,14 @@ export function createAwinAdapter(options: AwinAdapterOptions): AwinAdapter {
           const fetchedAt = clock.nowIso();
           const expiresAt = new Date(clock.nowMs() + cacheTtlMs).toISOString();
           const bodySha = await sha256Hex(response.body);
+          // Serialize the normalized candidate array. Skip the column write
+          // if it overflows the bound — the next call will re-fetch, but
+          // that is preferable to a silently oversized cache row.
+          const candidatesJson = JSON.stringify(candidates);
+          const candidatesPayload =
+            Buffer.byteLength(candidatesJson, "utf8") <= 32 * 1024
+              ? candidatesJson
+              : null;
           upsertSourceCacheEntry(options.db, {
             sourceId: AWIN_SOURCE_ID,
             cacheKey,
@@ -565,6 +711,7 @@ export function createAwinAdapter(options: AwinAdapterOptions): AwinAdapter {
               offer_count: candidates.length,
               error_count: errors.length,
             },
+            candidatesJson: candidatesPayload,
           });
         } catch {
           /* swallow */
@@ -579,6 +726,7 @@ export function createAwinAdapter(options: AwinAdapterOptions): AwinAdapter {
         candidates,
         errors,
         fetched: true,
+        cacheHit: false,
         durationMs,
       };
     },

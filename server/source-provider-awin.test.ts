@@ -470,4 +470,364 @@ describe("createAwinAdapter — db integration", () => {
     const result = await adapter.fetchAndParse({ domain: "shop.example" });
     expect(result.ok).toBe(true);
   });
+
+  it("persists candidates_json on success cache write", async () => {
+    const db = makeDb();
+    const { fetcher } = fetcherFromFixture(loadFixture("awin-offers-ok.json"));
+    const adapter = createAwinAdapter({
+      config: enabledConfig(),
+      fetcher,
+      db,
+      clock: fixedClock(),
+    });
+    await adapter.fetchAndParse({ domain: "shop.example" });
+    const row = db
+      .prepare(
+        "SELECT candidates_json FROM source_cache WHERE source_id = ? AND cache_key = ?",
+      )
+      .get("awin", "merchant:shop.example") as
+      | { candidates_json: string | null }
+      | undefined;
+    expect(row).toBeDefined();
+    expect(row?.candidates_json).not.toBeNull();
+    const arr = JSON.parse(row!.candidates_json!) as Array<Record<string, unknown>>;
+    expect(Array.isArray(arr)).toBe(true);
+    expect(arr).toHaveLength(3);
+    expect(arr[0]).toMatchObject({ domain: "shop.example", code: "AWIN10", sourceId: "awin" });
+    // No affiliate/secret fields persisted in the cached array.
+    const serialized = row!.candidates_json!;
+    expect(serialized).not.toContain("clickThroughUrl");
+    expect(serialized).not.toContain("trackingUrl");
+    expect(serialized).not.toContain("commissionRate");
+    expect(serialized).not.toContain("secret-key-shhh");
+    expect(serialized.toLowerCase()).not.toContain("authorization");
+  });
+});
+
+describe("createAwinAdapter — cache-read short-circuit (v0.33.0)", () => {
+  async function primeCache(db: Db): Promise<void> {
+    const { fetcher } = fetcherFromFixture(loadFixture("awin-offers-ok.json"));
+    const adapter = createAwinAdapter({
+      config: enabledConfig(),
+      fetcher,
+      db,
+      clock: fixedClock(),
+    });
+    await adapter.fetchAndParse({ domain: "shop.example" });
+  }
+
+  it("returns candidates from fresh cache without calling fetcher", async () => {
+    const db = makeDb();
+    await primeCache(db);
+
+    let called = 0;
+    const fetcher: AwinFetcher = async () => {
+      called += 1;
+      return { status: 200, body: "{}" };
+    };
+    const adapter = createAwinAdapter({
+      config: enabledConfig(),
+      fetcher,
+      db,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "shop.example" });
+
+    expect(called).toBe(0);
+    expect(result.ok).toBe(true);
+    expect(result.cacheHit).toBe(true);
+    expect(result.fetched).toBe(false);
+    expect(result.outcome).toBe("cache_hit");
+    expect(result.candidates).toHaveLength(3);
+    expect(result.candidates[0]).toMatchObject({
+      domain: "shop.example",
+      code: "AWIN10",
+      sourceId: "awin",
+    });
+    expectNoSecretsLeak(result, "secret-key-shhh");
+  });
+
+  it("writes a single cache_hit fetch_log row and no new cache row", async () => {
+    const db = makeDb();
+    await primeCache(db);
+    const cacheBefore = (
+      db.prepare("SELECT COUNT(*) AS n FROM source_cache").get() as { n: number }
+    ).n;
+    const logBefore = (
+      db.prepare("SELECT COUNT(*) AS n FROM source_fetch_log").get() as { n: number }
+    ).n;
+
+    const fetcher: AwinFetcher = async () => {
+      throw new Error("should not be called");
+    };
+    const adapter = createAwinAdapter({
+      config: enabledConfig(),
+      fetcher,
+      db,
+      clock: fixedClock(),
+    });
+    await adapter.fetchAndParse({ domain: "shop.example" });
+
+    const cacheAfter = (
+      db.prepare("SELECT COUNT(*) AS n FROM source_cache").get() as { n: number }
+    ).n;
+    const logAfter = db
+      .prepare(
+        "SELECT outcome, status_code, error_code, duration_ms FROM source_fetch_log ORDER BY id ASC",
+      )
+      .all() as Array<{
+      outcome: string;
+      status_code: number | null;
+      error_code: string | null;
+      duration_ms: number | null;
+    }>;
+
+    expect(cacheAfter).toBe(cacheBefore);
+    expect(logAfter).toHaveLength(logBefore + 1);
+    const hit = logAfter[logAfter.length - 1];
+    expect(hit.outcome).toBe("cache_hit");
+    expect(hit.status_code).toBeNull();
+    expect(hit.error_code).toBeNull();
+    expect(typeof hit.duration_ms).toBe("number");
+  });
+
+  it("falls through to fetcher when cache is stale", async () => {
+    const db = makeDb();
+    await primeCache(db);
+    // Force the cached row to look expired by rewriting expires_at to the past.
+    db.prepare(
+      `UPDATE source_cache SET expires_at = ? WHERE source_id = ?`,
+    ).run("2026-01-01T00:00:00.000Z", "awin");
+
+    let called = 0;
+    const { fetcher } = fetcherFromFixture(loadFixture("awin-offers-ok.json"));
+    const wrappedFetcher: AwinFetcher = async (url, init) => {
+      called += 1;
+      return fetcher(url, init);
+    };
+    const adapter = createAwinAdapter({
+      config: enabledConfig(),
+      fetcher: wrappedFetcher,
+      db,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "shop.example" });
+
+    expect(called).toBe(1);
+    expect(result.cacheHit).toBe(false);
+    expect(result.fetched).toBe(true);
+    expect(result.outcome).toBe("ok");
+    // Cache row rewritten (expires_at moves forward to a future ISO).
+    const expiresAt = (
+      db
+        .prepare("SELECT expires_at FROM source_cache WHERE source_id = ?")
+        .get("awin") as { expires_at: string }
+    ).expires_at;
+    expect(Date.parse(expiresAt)).toBeGreaterThan(Date.parse("2026-01-01T00:00:00.000Z"));
+  });
+
+  it("falls through to fetcher when no cache row exists", async () => {
+    const db = makeDb();
+    let called = 0;
+    const { fetcher } = fetcherFromFixture(loadFixture("awin-offers-ok.json"));
+    const wrappedFetcher: AwinFetcher = async (url, init) => {
+      called += 1;
+      return fetcher(url, init);
+    };
+    const adapter = createAwinAdapter({
+      config: enabledConfig(),
+      fetcher: wrappedFetcher,
+      db,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "shop.example" });
+    expect(called).toBe(1);
+    expect(result.cacheHit).toBe(false);
+    expect(result.fetched).toBe(true);
+  });
+
+  it("falls through when candidates_json is corrupt", async () => {
+    const db = makeDb();
+    await primeCache(db);
+    db.prepare(
+      `UPDATE source_cache SET candidates_json = ? WHERE source_id = ?`,
+    ).run("not-json", "awin");
+
+    let called = 0;
+    const { fetcher } = fetcherFromFixture(loadFixture("awin-offers-ok.json"));
+    const wrappedFetcher: AwinFetcher = async (url, init) => {
+      called += 1;
+      return fetcher(url, init);
+    };
+    const adapter = createAwinAdapter({
+      config: enabledConfig(),
+      fetcher: wrappedFetcher,
+      db,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "shop.example" });
+    expect(called).toBe(1);
+    expect(result.cacheHit).toBe(false);
+    expect(result.ok).toBe(true);
+    // Cache rewritten with valid candidates_json.
+    const json = (
+      db
+        .prepare("SELECT candidates_json FROM source_cache WHERE source_id = ?")
+        .get("awin") as { candidates_json: string }
+    ).candidates_json;
+    expect(() => JSON.parse(json)).not.toThrow();
+  });
+
+  it("falls through when cached candidates fail revalidation", async () => {
+    const db = makeDb();
+    await primeCache(db);
+    // Overwrite with structurally JSON-array but row fails domain validation.
+    const tampered = JSON.stringify([
+      { domain: "not a domain", code: "BAD", sourceId: "awin", discoveredAt: "x" },
+    ]);
+    db.prepare(
+      `UPDATE source_cache SET candidates_json = ? WHERE source_id = ?`,
+    ).run(tampered, "awin");
+
+    let called = 0;
+    const { fetcher } = fetcherFromFixture(loadFixture("awin-offers-ok.json"));
+    const wrappedFetcher: AwinFetcher = async (url, init) => {
+      called += 1;
+      return fetcher(url, init);
+    };
+    const adapter = createAwinAdapter({
+      config: enabledConfig(),
+      fetcher: wrappedFetcher,
+      db,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "shop.example" });
+    expect(called).toBe(1);
+    expect(result.cacheHit).toBe(false);
+  });
+
+  it("rejects cached rows whose sourceId does not match", async () => {
+    const db = makeDb();
+    await primeCache(db);
+    // Switch sourceId on a cached row to a different (valid) id.
+    const tampered = JSON.stringify([
+      { domain: "shop.example", code: "X", sourceId: "seed", discoveredAt: FIXED_NOW_ISO },
+    ]);
+    db.prepare(
+      `UPDATE source_cache SET candidates_json = ? WHERE source_id = ?`,
+    ).run(tampered, "awin");
+
+    let called = 0;
+    const { fetcher } = fetcherFromFixture(loadFixture("awin-offers-ok.json"));
+    const wrappedFetcher: AwinFetcher = async (url, init) => {
+      called += 1;
+      return fetcher(url, init);
+    };
+    const adapter = createAwinAdapter({
+      config: enabledConfig(),
+      fetcher: wrappedFetcher,
+      db,
+      clock: fixedClock(),
+    });
+    await adapter.fetchAndParse({ domain: "shop.example" });
+    expect(called).toBe(1);
+  });
+
+  it("cache hit is scoped to (sourceId, domain) — different domain misses", async () => {
+    const db = makeDb();
+    await primeCache(db); // primes merchant:shop.example
+
+    let called = 0;
+    const { fetcher } = fetcherFromFixture(loadFixture("awin-offers-empty.json"));
+    const wrappedFetcher: AwinFetcher = async (url, init) => {
+      called += 1;
+      return fetcher(url, init);
+    };
+    const adapter = createAwinAdapter({
+      config: enabledConfig(),
+      fetcher: wrappedFetcher,
+      db,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "other.example" });
+    expect(called).toBe(1);
+    expect(result.cacheHit).toBe(false);
+  });
+
+  it("disabled provider does not read cache or call fetcher", async () => {
+    const db = makeDb();
+    await primeCache(db);
+    let called = 0;
+    const fetcher: AwinFetcher = async () => {
+      called += 1;
+      return { status: 200, body: "{}" };
+    };
+    const adapter = createAwinAdapter({
+      config: { enabled: false, reason: "flag_off" } as unknown as AwinProviderConfig,
+      fetcher,
+      db,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "shop.example" });
+    expect(called).toBe(0);
+    expect(result.cacheHit).toBe(false);
+    expect(result.errorCode).toBe("disabled");
+    // No additional fetch_log row from this attempt (one cache_hit could only be
+    // written after a successful prime; here the prime wrote outcome 'ok').
+    const fetchHitCount = (
+      db
+        .prepare("SELECT COUNT(*) AS n FROM source_fetch_log WHERE outcome = ?")
+        .get("cache_hit") as { n: number }
+    ).n;
+    expect(fetchHitCount).toBe(0);
+  });
+
+  it("missing API key does not read cache or call fetcher", async () => {
+    const db = makeDb();
+    await primeCache(db);
+    let called = 0;
+    const fetcher: AwinFetcher = async () => {
+      called += 1;
+      return { status: 200, body: "{}" };
+    };
+    const adapter = createAwinAdapter({
+      config: { ...enabledConfig(), apiKey: "" },
+      fetcher,
+      db,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "shop.example" });
+    expect(called).toBe(0);
+    expect(result.errorCode).toBe("missing_api_key");
+    expect(result.cacheHit).toBe(false);
+    const fetchHitCount = (
+      db
+        .prepare("SELECT COUNT(*) AS n FROM source_fetch_log WHERE outcome = ?")
+        .get("cache_hit") as { n: number }
+    ).n;
+    expect(fetchHitCount).toBe(0);
+  });
+
+  it("cache hit never writes coupon_codes or coupon_code_sources", async () => {
+    const db = makeDb();
+    await primeCache(db);
+    const fetcher: AwinFetcher = async () => {
+      throw new Error("should not be called");
+    };
+    const adapter = createAwinAdapter({
+      config: enabledConfig(),
+      fetcher,
+      db,
+      clock: fixedClock(),
+    });
+    await adapter.fetchAndParse({ domain: "shop.example" });
+    const codeCount = (
+      db.prepare("SELECT COUNT(*) AS n FROM coupon_codes").get() as { n: number }
+    ).n;
+    const provCount = (
+      db.prepare("SELECT COUNT(*) AS n FROM coupon_code_sources").get() as { n: number }
+    ).n;
+    expect(codeCount).toBe(0);
+    expect(provCount).toBe(0);
+  });
 });

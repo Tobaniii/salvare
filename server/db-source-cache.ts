@@ -26,6 +26,7 @@ const METADATA_KEY_PATTERN = /^[a-z0-9][a-z0-9_-]{0,47}$/;
 const METADATA_MAX_KEYS = 16;
 const METADATA_MAX_BYTES = 2048;
 const METADATA_STRING_MAX = 200;
+const CANDIDATES_JSON_MAX_BYTES = 32 * 1024;
 
 const METADATA_DENY_KEYS: ReadonlySet<string> = new Set([
   "authorization",
@@ -89,6 +90,7 @@ export interface SourceCacheUpsertInput {
   status: SourceCacheStatus;
   bodySha256?: string | null;
   metadata?: Record<string, MetadataValue> | null;
+  candidatesJson?: string | null;
 }
 
 export type MetadataValue = string | number | boolean | null;
@@ -101,6 +103,7 @@ export interface SourceCacheEntry {
   status: SourceCacheStatus;
   bodySha256: string | null;
   metadata: Record<string, MetadataValue> | null;
+  candidatesJson: string | null;
 }
 
 export interface SourceCacheLookup {
@@ -218,6 +221,31 @@ function validateOptionalDurationMs(value: unknown): number | null {
   return value;
 }
 
+function validateOptionalCandidatesJson(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string") {
+    throw new Error("candidatesJson must be a string");
+  }
+  if (Buffer.byteLength(value, "utf8") > CANDIDATES_JSON_MAX_BYTES) {
+    throw new Error(
+      `candidatesJson exceeds ${CANDIDATES_JSON_MAX_BYTES} bytes`,
+    );
+  }
+  // Must parse, must be an array. Reject non-array shapes so the cache can
+  // never hold a raw provider envelope. Element-level validation is the
+  // caller's responsibility (the adapter re-runs validators on read).
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("candidatesJson must be valid JSON");
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error("candidatesJson must encode a JSON array");
+  }
+  return value;
+}
+
 function validateOptionalSha256(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   if (typeof value !== "string" || !SHA256_HEX_PATTERN.test(value)) {
@@ -318,6 +346,7 @@ function rowToCacheEntry(row: {
   status: string;
   body_sha256: string | null;
   metadata_json: string | null;
+  candidates_json: string | null;
 }): SourceCacheEntry {
   let metadata: Record<string, MetadataValue> | null = null;
   if (row.metadata_json !== null) {
@@ -336,6 +365,7 @@ function rowToCacheEntry(row: {
     status: row.status as SourceCacheStatus,
     bodySha256: row.body_sha256,
     metadata,
+    candidatesJson: row.candidates_json,
   };
 }
 
@@ -494,17 +524,19 @@ export function upsertSourceCacheEntry(
   const bodySha256 = validateOptionalSha256(input.bodySha256);
   const metadata = validateMetadata(input.metadata);
   const metadataJson = metadata === null ? null : JSON.stringify(metadata);
+  const candidatesJson = validateOptionalCandidatesJson(input.candidatesJson);
 
   db.prepare(
     `INSERT INTO source_cache
-       (source_id, cache_key, fetched_at, expires_at, status, body_sha256, metadata_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+       (source_id, cache_key, fetched_at, expires_at, status, body_sha256, metadata_json, candidates_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(source_id, cache_key) DO UPDATE SET
          fetched_at = excluded.fetched_at,
          expires_at = excluded.expires_at,
          status = excluded.status,
          body_sha256 = excluded.body_sha256,
-         metadata_json = excluded.metadata_json`,
+         metadata_json = excluded.metadata_json,
+         candidates_json = excluded.candidates_json`,
   ).run(
     sourceId,
     cacheKey,
@@ -513,12 +545,13 @@ export function upsertSourceCacheEntry(
     status,
     bodySha256,
     metadataJson,
+    candidatesJson,
   );
 
   const row = db
     .prepare(
       `SELECT source_id, cache_key, fetched_at, expires_at, status,
-              body_sha256, metadata_json
+              body_sha256, metadata_json, candidates_json
          FROM source_cache
          WHERE source_id = ? AND cache_key = ?`,
     )
@@ -531,6 +564,7 @@ export function upsertSourceCacheEntry(
         status: string;
         body_sha256: string | null;
         metadata_json: string | null;
+        candidates_json: string | null;
       }
     | undefined;
   if (!row) {
@@ -551,7 +585,7 @@ export function getSourceCacheEntry(
   const row = db
     .prepare(
       `SELECT source_id, cache_key, fetched_at, expires_at, status,
-              body_sha256, metadata_json
+              body_sha256, metadata_json, candidates_json
          FROM source_cache
          WHERE source_id = ? AND cache_key = ?`,
     )
@@ -564,6 +598,7 @@ export function getSourceCacheEntry(
         status: string;
         body_sha256: string | null;
         metadata_json: string | null;
+        candidates_json: string | null;
       }
     | undefined;
   if (!row) return null;

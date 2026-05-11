@@ -181,8 +181,8 @@ describe("initSchema", () => {
     expect(count).toBe(3);
   });
 
-  it("EXPECTED_SCHEMA_VERSION reflects the v0.29.0 bump", () => {
-    expect(EXPECTED_SCHEMA_VERSION).toBe("3");
+  it("EXPECTED_SCHEMA_VERSION reflects the v0.33.0 bump", () => {
+    expect(EXPECTED_SCHEMA_VERSION).toBe("4");
   });
 
   it("creates source_cache and source_fetch_log tables (v0.29.0)", () => {
@@ -190,6 +190,51 @@ describe("initSchema", () => {
     const tables = listTables(db);
     expect(tables).toContain("source_cache");
     expect(tables).toContain("source_fetch_log");
+  });
+
+  it("source_cache includes the v0.33.0 candidates_json column", () => {
+    const db = makeMemoryDb();
+    const cols = db.prepare("PRAGMA table_info(source_cache)").all() as Array<{
+      name: string;
+    }>;
+    expect(cols.map((c) => c.name)).toContain("candidates_json");
+  });
+
+  it("idempotently adds candidates_json on a v0.29-shape source_cache (in-place upgrade)", () => {
+    const db = makeMemoryDb();
+    // Simulate an old DB by dropping the column via a rebuild.
+    db.exec("DROP TABLE source_fetch_log");
+    db.exec("DROP TABLE source_cache");
+    db.exec(`
+      CREATE TABLE source_cache (
+        source_id TEXT NOT NULL REFERENCES coupon_sources(id) ON DELETE RESTRICT,
+        cache_key TEXT NOT NULL,
+        fetched_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        status TEXT NOT NULL,
+        body_sha256 TEXT,
+        metadata_json TEXT,
+        PRIMARY KEY (source_id, cache_key)
+      );
+      CREATE TABLE source_fetch_log (
+        id INTEGER PRIMARY KEY,
+        source_id TEXT NOT NULL REFERENCES coupon_sources(id) ON DELETE RESTRICT,
+        cache_key TEXT NOT NULL,
+        attempted_at TEXT NOT NULL,
+        outcome TEXT NOT NULL,
+        status_code INTEGER,
+        error_code TEXT,
+        duration_ms INTEGER
+      );
+    `);
+    // Re-running initSchema must add the missing column without throwing.
+    initSchema(db);
+    const cols = db.prepare("PRAGMA table_info(source_cache)").all() as Array<{
+      name: string;
+    }>;
+    expect(cols.map((c) => c.name)).toContain("candidates_json");
+    // Second run is a no-op (idempotent).
+    expect(() => initSchema(db)).not.toThrow();
   });
 
   it("creates the expected source cache/log indexes", () => {
