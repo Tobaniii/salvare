@@ -41,6 +41,26 @@
 > No admin UI controls, no automatic import/apply, no extension behavior
 > changes, no `/coupons` response changes, no export/import shape changes,
 > no ranking changes, no schema changes, and no live HTTP in tests.
+>
+> **v0.35.0 status (2026-05-12):** Admin UI control added for the v0.34
+> source-preview route. The admin shell
+> ([`server/admin.html`](../server/admin.html)) now renders a minimal
+> **Source preview** section (provider label `Awin`, domain input, Preview
+> button, status/candidates/errors containers) that POSTs to the existing
+> `/admin/source-preview/awin` route using the same `authHeaders()` helper
+> as the rest of the admin page. Rendering is allowlisted client-side
+> (`sourceId`, `domain`, `code`, `label`, `expiresAt`, `confidence` plus
+> `provider`/`cacheHit`/`fetched`/`candidateCount` summary); the admin
+> token, `Authorization`, env var values, raw payloads, raw HTML, stack
+> traces, and affiliate/tracking fields are never read off the response and
+> cannot reach the DOM. Disabled / missing-key responses render plain
+> English messages — the env var name `SALVARE_AWIN_API_KEY` may be
+> mentioned, never its value. **Still preview-only:** no Import or Apply
+> button, no writes to `coupon_codes` or `coupon_results`, no extension
+> behavior changes, no `/coupons` response changes, no export/import shape
+> changes, no ranking changes, no schema changes, and no live HTTP in tests.
+> Smoke checks assert control visibility only; they never depend on the
+> provider being enabled or on any API key being configured.
 
 
 This document evaluates candidate coupon source providers, APIs, and feeds for Salvare's first real trusted source integration. It is research-only: no adapter, no network fetching, no API keys, and no schema changes are introduced in this milestone. The recommendation here informs v0.32.0 implementation work.

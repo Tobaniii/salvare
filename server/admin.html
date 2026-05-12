@@ -288,6 +288,76 @@
         font-size: 12px;
         color: #555;
       }
+      .source-preview-bar {
+        border: 1px solid #e2e2e2;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 16px;
+        background: #fafafa;
+      }
+      .source-preview-bar h2 {
+        margin: 0 0 8px;
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #555;
+      }
+      .source-preview-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-top: 8px;
+      }
+      .source-preview-row .source-preview-provider {
+        font-size: 13px;
+        color: #444;
+      }
+      .source-preview-row input[type="text"] {
+        flex: 1 1 240px;
+        padding: 8px 10px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        font-size: 14px;
+      }
+      .source-preview-row button {
+        margin: 0;
+      }
+      #source-preview-status {
+        font-size: 13px;
+        min-height: 18px;
+        margin-top: 8px;
+        color: #555;
+      }
+      #source-preview-status.error {
+        color: #b91c1c;
+      }
+      #source-preview-status.ok {
+        color: #166534;
+      }
+      .source-preview-bar dl.preview-summary {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 4px 12px;
+        margin: 8px 0;
+        font-size: 13px;
+      }
+      .source-preview-bar dl.preview-summary dt {
+        color: #555;
+      }
+      .source-preview-bar dl.preview-summary dd {
+        margin: 0;
+        color: #222;
+      }
+      .source-preview-bar table {
+        margin-top: 8px;
+      }
+      .source-preview-bar ul.preview-errors {
+        margin: 8px 0 0;
+        padding-left: 18px;
+        font-size: 13px;
+        color: #b91c1c;
+      }
       #auth-banner {
         display: none;
         border: 1px solid #fca5a5;
@@ -411,6 +481,28 @@
       </div>
     </section>
 
+    <section class="source-preview-bar" aria-label="Source preview">
+      <h2>Source preview</h2>
+      <p class="domain-empty">
+        Preview only — calls protected
+        <code>POST /admin/source-preview/awin</code>. Results are
+        <strong>not saved</strong> to coupons or results. No import, no apply.
+      </p>
+      <div class="source-preview-row">
+        <span class="source-preview-provider">Provider: Awin</span>
+        <input
+          id="source-preview-domain"
+          type="text"
+          placeholder="example.com"
+          autocomplete="off"
+        />
+        <button id="source-preview-btn" type="button">Preview</button>
+      </div>
+      <div id="source-preview-status"></div>
+      <div id="source-preview-candidates"></div>
+      <div id="source-preview-errors"></div>
+    </section>
+
     <div id="auth-banner" role="alert">
       Admin token required or invalid. Paste a valid token above and click Save.
     </div>
@@ -437,8 +529,9 @@
       <code>GET /admin/coupon-stats</code>,
       <code>GET /admin/export/coupons</code>,
       <code>GET /admin/export/results</code>,
-      <code>POST /admin/import/preview/{coupons,results}</code>, and
-      <code>POST /admin/import/apply/{coupons,results}</code>.
+      <code>POST /admin/import/preview/{coupons,results}</code>,
+      <code>POST /admin/import/apply/{coupons,results}</code>, and
+      <code>POST /admin/source-preview/awin</code>.
     </footer>
 
     <script>
@@ -1133,6 +1226,188 @@
         statusId: "import-results-status",
         previewPath: "/admin/import/preview/results",
         applyPath: "/admin/import/apply/results",
+      });
+
+      var sourcePreviewDomainInput = document.getElementById(
+        "source-preview-domain",
+      );
+      var sourcePreviewBtn = document.getElementById("source-preview-btn");
+      var sourcePreviewStatusEl = document.getElementById(
+        "source-preview-status",
+      );
+      var sourcePreviewCandidatesEl = document.getElementById(
+        "source-preview-candidates",
+      );
+      var sourcePreviewErrorsEl = document.getElementById(
+        "source-preview-errors",
+      );
+
+      var SOURCE_PREVIEW_CANDIDATE_FIELDS = [
+        "sourceId",
+        "domain",
+        "code",
+        "label",
+        "expiresAt",
+        "confidence",
+      ];
+
+      function setSourcePreviewStatus(message, kind) {
+        sourcePreviewStatusEl.textContent = message || "";
+        sourcePreviewStatusEl.className = kind ? kind : "";
+      }
+
+      function clearSourcePreviewResults() {
+        sourcePreviewCandidatesEl.innerHTML = "";
+        sourcePreviewErrorsEl.innerHTML = "";
+      }
+
+      function appendKv(parent, label, value) {
+        var dt = document.createElement("dt");
+        dt.textContent = label;
+        var dd = document.createElement("dd");
+        dd.textContent = value;
+        parent.appendChild(dt);
+        parent.appendChild(dd);
+      }
+
+      function renderSourcePreviewSummary(body) {
+        var summary = document.createElement("dl");
+        summary.className = "preview-summary";
+        appendKv(
+          summary,
+          "provider",
+          typeof body.provider === "string" ? body.provider : "—",
+        );
+        appendKv(
+          summary,
+          "domain",
+          typeof body.domain === "string" ? body.domain : "—",
+        );
+        appendKv(summary, "fetched", body.fetched === true ? "yes" : "no");
+        appendKv(summary, "cacheHit", body.cacheHit === true ? "yes" : "no");
+        appendKv(
+          summary,
+          "candidateCount",
+          String(
+            typeof body.candidateCount === "number" ? body.candidateCount : 0,
+          ),
+        );
+        sourcePreviewCandidatesEl.appendChild(summary);
+      }
+
+      function renderSourcePreviewCandidates(body) {
+        renderSourcePreviewSummary(body);
+        if (Array.isArray(body.candidates) && body.candidates.length > 0) {
+          var table = document.createElement("table");
+          var thead = document.createElement("thead");
+          thead.innerHTML =
+            "<tr>" +
+            SOURCE_PREVIEW_CANDIDATE_FIELDS.map(function (f) {
+              return "<th>" + f + "</th>";
+            }).join("") +
+            "</tr>";
+          table.appendChild(thead);
+          var tbody = document.createElement("tbody");
+          body.candidates.forEach(function (c) {
+            var tr = document.createElement("tr");
+            SOURCE_PREVIEW_CANDIDATE_FIELDS.forEach(function (f) {
+              var td = document.createElement("td");
+              var v = c && c[f];
+              td.textContent = v === undefined || v === null ? "—" : String(v);
+              tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+          });
+          table.appendChild(tbody);
+          sourcePreviewCandidatesEl.appendChild(table);
+        } else {
+          var empty = document.createElement("p");
+          empty.className = "domain-empty";
+          empty.textContent = "No candidates returned.";
+          sourcePreviewCandidatesEl.appendChild(empty);
+        }
+        if (Array.isArray(body.errors) && body.errors.length > 0) {
+          var ul = document.createElement("ul");
+          ul.className = "preview-errors";
+          body.errors.forEach(function (e) {
+            var li = document.createElement("li");
+            var idx =
+              e && typeof e.index === "number" ? String(e.index) : "?";
+            var reason =
+              e && typeof e.reason === "string" ? e.reason : "unknown";
+            li.textContent = "row " + idx + ": " + reason;
+            ul.appendChild(li);
+          });
+          sourcePreviewErrorsEl.appendChild(ul);
+        }
+      }
+
+      function renderSourcePreviewDisabled(body) {
+        renderSourcePreviewSummary(body);
+        var p = document.createElement("p");
+        p.className = "domain-empty";
+        var reason =
+          body && typeof body.reason === "string" ? body.reason : "unknown";
+        if (reason === "disabled") {
+          p.textContent =
+            "Provider disabled. Source provider must be explicitly enabled (preview only).";
+        } else if (reason === "missing_api_key") {
+          p.textContent =
+            "Provider API key not configured. Set SALVARE_AWIN_API_KEY to enable (preview only).";
+        } else {
+          p.textContent = "Preview unavailable: " + reason;
+        }
+        sourcePreviewCandidatesEl.appendChild(p);
+      }
+
+      sourcePreviewBtn.addEventListener("click", function () {
+        var domain = sourcePreviewDomainInput.value.trim();
+        if (!domain) {
+          setSourcePreviewStatus("Domain is required.", "error");
+          return;
+        }
+        setSourcePreviewStatus("Previewing…");
+        clearSourcePreviewResults();
+        fetch("/admin/source-preview/awin", {
+          method: "POST",
+          headers: authHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ domain: domain }),
+        })
+          .then(function (r) {
+            if (r.status === 401) {
+              setAuthBannerVisible(true);
+              setSourcePreviewStatus("Preview failed: unauthorized.", "error");
+              return null;
+            }
+            return r.json().then(function (body) {
+              return { ok: r.ok, body: body };
+            });
+          })
+          .then(function (result) {
+            if (result === null) return;
+            var body = result.body;
+            if (!result.ok || !body) {
+              setSourcePreviewStatus(
+                "Preview failed: " +
+                  (body && body.error ? body.error : "unknown error"),
+                "error",
+              );
+              return;
+            }
+            if (body.ok === true) {
+              setSourcePreviewStatus("Preview ok (not saved).", "ok");
+              renderSourcePreviewCandidates(body);
+              return;
+            }
+            setSourcePreviewStatus("Preview returned no candidates.", "");
+            renderSourcePreviewDisabled(body);
+          })
+          .catch(function (err) {
+            setSourcePreviewStatus(
+              "Preview failed: " + err.message,
+              "error",
+            );
+          });
       });
 
       refreshTokenStatusFromStorage();

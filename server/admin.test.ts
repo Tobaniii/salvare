@@ -74,4 +74,25 @@ describe("getAdminHtml", () => {
     expect(html).not.toContain('id="admin-reset"');
     expect(html).not.toContain("/admin/reset");
   });
+
+  it("includes the source preview section, domain input, preview button, status, candidates, and errors containers", () => {
+    const html = getAdminHtml();
+    expect(html).toContain("Source preview");
+    expect(html).toContain("Provider: Awin");
+    expect(html).toContain("Preview only");
+    expect(html).toContain('id="source-preview-domain"');
+    expect(html).toContain('id="source-preview-btn"');
+    expect(html).toContain('id="source-preview-status"');
+    expect(html).toContain('id="source-preview-candidates"');
+    expect(html).toContain('id="source-preview-errors"');
+    expect(html).toContain("/admin/source-preview/awin");
+  });
+
+  it("does not include any source-preview import/apply controls or coupon-write routes for preview", () => {
+    const html = getAdminHtml();
+    expect(html).not.toContain("source-preview-apply");
+    expect(html).not.toContain("source-preview-import");
+    expect(html).not.toContain("/admin/source-preview/apply");
+    expect(html).not.toContain("/admin/source-preview/import");
+  });
 });

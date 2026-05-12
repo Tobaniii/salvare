@@ -30,6 +30,12 @@ test.describe("admin page UI", () => {
     await expect(page.locator("#import-results-apply")).toBeVisible();
     await expect(page.locator("#import-results-apply")).toBeDisabled();
 
+    await expect(
+      page.getByRole("heading", { name: "Source preview" }),
+    ).toBeVisible();
+    await expect(page.locator("#source-preview-domain")).toBeVisible();
+    await expect(page.locator("#source-preview-btn")).toBeVisible();
+
     const seededDomain = page.locator(".domain-name", { hasText: "smoke.test" });
     await expect(seededDomain).toBeVisible();
 
