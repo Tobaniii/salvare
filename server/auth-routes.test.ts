@@ -132,6 +132,15 @@ const PROTECTED_ENDPOINTS: Array<{
       body: JSON.stringify({ domain: "example.com" }),
     },
   },
+  {
+    name: "POST /admin/source-import/awin",
+    path: "/admin/source-import/awin",
+    init: {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: "example.com", confirm: "IMPORT" }),
+    },
+  },
 ];
 
 describe("auth disabled (no SALVARE_ADMIN_TOKEN)", () => {

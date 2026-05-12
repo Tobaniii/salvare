@@ -484,9 +484,11 @@
     <section class="source-preview-bar" aria-label="Source preview">
       <h2>Source preview</h2>
       <p class="domain-empty">
-        Preview only — calls protected
-        <code>POST /admin/source-preview/awin</code>. Results are
-        <strong>not saved</strong> to coupons or results. No import, no apply.
+        Preview calls protected
+        <code>POST /admin/source-preview/awin</code>; nothing is saved on
+        preview. Importing saves candidates to the coupon table only — codes
+        are <strong>not</strong> auto-tested or auto-applied until the normal
+        extension flow runs at checkout.
       </p>
       <div class="source-preview-row">
         <span class="source-preview-provider">Provider: Awin</span>
@@ -501,6 +503,23 @@
       <div id="source-preview-status"></div>
       <div id="source-preview-candidates"></div>
       <div id="source-preview-errors"></div>
+      <div class="source-preview-row">
+        <label class="import-confirm" for="source-import-confirm">
+          Type <strong>IMPORT</strong> to enable import (additive — does not
+          delete existing codes):
+        </label>
+        <input
+          id="source-import-confirm"
+          type="text"
+          autocomplete="off"
+          placeholder="IMPORT"
+        />
+        <button id="source-import-btn" type="button" disabled>
+          Import previewed candidates
+        </button>
+      </div>
+      <div id="source-import-status"></div>
+      <div id="source-import-summary"></div>
     </section>
 
     <div id="auth-banner" role="alert">
@@ -530,8 +549,9 @@
       <code>GET /admin/export/coupons</code>,
       <code>GET /admin/export/results</code>,
       <code>POST /admin/import/preview/{coupons,results}</code>,
-      <code>POST /admin/import/apply/{coupons,results}</code>, and
-      <code>POST /admin/source-preview/awin</code>.
+      <code>POST /admin/import/apply/{coupons,results}</code>,
+      <code>POST /admin/source-preview/awin</code>, and
+      <code>POST /admin/source-import/awin</code>.
     </footer>
 
     <script>
@@ -1360,14 +1380,107 @@
         sourcePreviewCandidatesEl.appendChild(p);
       }
 
+      var sourceImportConfirmInput = document.getElementById(
+        "source-import-confirm",
+      );
+      var sourceImportBtn = document.getElementById("source-import-btn");
+      var sourceImportStatusEl = document.getElementById(
+        "source-import-status",
+      );
+      var sourceImportSummaryEl = document.getElementById(
+        "source-import-summary",
+      );
+
+      var lastPreviewedDomain = null;
+      var lastPreviewHadCandidates = false;
+
+      function setSourceImportStatus(message, kind) {
+        sourceImportStatusEl.textContent = message || "";
+        sourceImportStatusEl.className = kind ? kind : "";
+      }
+
+      function clearSourceImportSummary() {
+        sourceImportSummaryEl.innerHTML = "";
+      }
+
+      function refreshSourceImportEnabled() {
+        var typed =
+          sourceImportConfirmInput.value.trim() === "IMPORT";
+        sourceImportBtn.disabled = !(
+          lastPreviewedDomain && lastPreviewHadCandidates && typed
+        );
+      }
+
+      function resetSourceImportControls() {
+        lastPreviewedDomain = null;
+        lastPreviewHadCandidates = false;
+        sourceImportConfirmInput.value = "";
+        clearSourceImportSummary();
+        setSourceImportStatus("");
+        refreshSourceImportEnabled();
+      }
+
+      function renderImportSummary(body) {
+        var dl = document.createElement("dl");
+        dl.className = "preview-summary";
+        appendKv(
+          dl,
+          "provider",
+          typeof body.provider === "string" ? body.provider : "—",
+        );
+        appendKv(
+          dl,
+          "domain",
+          typeof body.domain === "string" ? body.domain : "—",
+        );
+        appendKv(
+          dl,
+          "candidatesAccepted",
+          String(
+            typeof body.candidatesAccepted === "number"
+              ? body.candidatesAccepted
+              : 0,
+          ),
+        );
+        appendKv(
+          dl,
+          "codesImported",
+          String(
+            typeof body.codesImported === "number" ? body.codesImported : 0,
+          ),
+        );
+        appendKv(
+          dl,
+          "provenanceRecorded",
+          String(
+            typeof body.provenanceRecorded === "number"
+              ? body.provenanceRecorded
+              : 0,
+          ),
+        );
+        appendKv(
+          dl,
+          "rejected",
+          String(typeof body.rejected === "number" ? body.rejected : 0),
+        );
+        sourceImportSummaryEl.appendChild(dl);
+      }
+
+      sourceImportConfirmInput.addEventListener(
+        "input",
+        refreshSourceImportEnabled,
+      );
+
       sourcePreviewBtn.addEventListener("click", function () {
         var domain = sourcePreviewDomainInput.value.trim();
         if (!domain) {
           setSourcePreviewStatus("Domain is required.", "error");
+          resetSourceImportControls();
           return;
         }
         setSourcePreviewStatus("Previewing…");
         clearSourcePreviewResults();
+        resetSourceImportControls();
         fetch("/admin/source-preview/awin", {
           method: "POST",
           headers: authHeaders({ "Content-Type": "application/json" }),
@@ -1397,6 +1510,10 @@
             if (body.ok === true) {
               setSourcePreviewStatus("Preview ok (not saved).", "ok");
               renderSourcePreviewCandidates(body);
+              lastPreviewedDomain = domain;
+              lastPreviewHadCandidates =
+                Array.isArray(body.candidates) && body.candidates.length > 0;
+              refreshSourceImportEnabled();
               return;
             }
             setSourcePreviewStatus("Preview returned no candidates.", "");
@@ -1407,6 +1524,60 @@
               "Preview failed: " + err.message,
               "error",
             );
+          });
+      });
+
+      sourceImportBtn.addEventListener("click", function () {
+        if (!lastPreviewedDomain || !lastPreviewHadCandidates) return;
+        if (sourceImportConfirmInput.value.trim() !== "IMPORT") return;
+        sourceImportBtn.disabled = true;
+        setSourceImportStatus("Importing…");
+        clearSourceImportSummary();
+        fetch("/admin/source-import/awin", {
+          method: "POST",
+          headers: authHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({
+            domain: lastPreviewedDomain,
+            confirm: "IMPORT",
+          }),
+        })
+          .then(function (r) {
+            if (r.status === 401) {
+              setAuthBannerVisible(true);
+              setSourceImportStatus("Import failed: unauthorized.", "error");
+              refreshSourceImportEnabled();
+              return null;
+            }
+            return r.json().then(function (body) {
+              return { ok: r.ok, body: body };
+            });
+          })
+          .then(function (result) {
+            if (result === null) return;
+            var body = result.body;
+            if (!result.ok || !body || body.ok !== true) {
+              var reason =
+                body && typeof body.reason === "string"
+                  ? body.reason
+                  : body && typeof body.error === "string"
+                  ? body.error
+                  : "unknown error";
+              setSourceImportStatus("Import failed: " + reason, "error");
+              refreshSourceImportEnabled();
+              return;
+            }
+            setSourceImportStatus(
+              "Imported (candidates only — not auto-tested or auto-applied).",
+              "ok",
+            );
+            renderImportSummary(body);
+            sourceImportConfirmInput.value = "";
+            refreshSourceImportEnabled();
+            loadCoupons();
+          })
+          .catch(function (err) {
+            setSourceImportStatus("Import failed: " + err.message, "error");
+            refreshSourceImportEnabled();
           });
       });
 

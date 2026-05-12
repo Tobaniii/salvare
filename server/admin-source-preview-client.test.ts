@@ -452,6 +452,200 @@ describe("admin source-preview client", () => {
     expect(candidates).toBe("");
   });
 
+  it("Import button is disabled by default before any preview", () => {
+    const btn = h.document.getElementById(
+      "source-import-btn",
+    ) as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+    expect(btn.disabled).toBe(true);
+  });
+
+  it("Import stays disabled until IMPORT is typed even after a successful preview", async () => {
+    h.setResponder((url) => {
+      if (url === "/admin/source-preview/awin") {
+        return jsonResponse({
+          ok: true,
+          provider: "awin",
+          domain: "shop.example",
+          cacheHit: false,
+          fetched: true,
+          candidateCount: 1,
+          candidates: [
+            {
+              sourceId: "awin",
+              domain: "shop.example",
+              code: "AWIN10",
+              label: "10% off",
+              expiresAt: "2026-12-31",
+              confidence: 0.8,
+            },
+          ],
+          errors: [],
+        });
+      }
+      return jsonResponse({});
+    });
+
+    h.fill("source-preview-domain", "shop.example");
+    h.click("source-preview-btn");
+    await h.waitFor(
+      () =>
+        (h.document.getElementById("source-preview-status")?.textContent ??
+          "") === "Preview ok (not saved).",
+    );
+
+    const btn = h.document.getElementById(
+      "source-import-btn",
+    ) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+
+    // Wrong phrase — must stay disabled.
+    const confirmInput = h.document.getElementById(
+      "source-import-confirm",
+    ) as HTMLInputElement;
+    confirmInput.value = "import";
+    confirmInput.dispatchEvent(new (h.window as unknown as { Event: typeof Event }).Event("input", { bubbles: true }));
+    expect(btn.disabled).toBe(true);
+
+    confirmInput.value = "IMPORT";
+    confirmInput.dispatchEvent(new (h.window as unknown as { Event: typeof Event }).Event("input", { bubbles: true }));
+    expect(btn.disabled).toBe(false);
+  });
+
+  it("Import stays disabled when preview returns zero candidates", async () => {
+    h.setResponder((url) => {
+      if (url === "/admin/source-preview/awin") {
+        return jsonResponse({
+          ok: true,
+          provider: "awin",
+          domain: "shop.example",
+          cacheHit: false,
+          fetched: true,
+          candidateCount: 0,
+          candidates: [],
+          errors: [],
+        });
+      }
+      return jsonResponse({});
+    });
+
+    h.fill("source-preview-domain", "shop.example");
+    h.click("source-preview-btn");
+    await h.waitFor(
+      () =>
+        (h.document.getElementById("source-preview-status")?.textContent ??
+          "") === "Preview ok (not saved).",
+    );
+
+    const confirmInput = h.document.getElementById(
+      "source-import-confirm",
+    ) as HTMLInputElement;
+    confirmInput.value = "IMPORT";
+    confirmInput.dispatchEvent(new (h.window as unknown as { Event: typeof Event }).Event("input", { bubbles: true }));
+
+    const btn = h.document.getElementById(
+      "source-import-btn",
+    ) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+  });
+
+  it("Import POST carries correct body + headers and renders only allowlisted summary fields", async () => {
+    h.window.localStorage.setItem("salvareAdminToken", "tok-imp-789");
+    h.setResponder((url) => {
+      if (url === "/admin/source-preview/awin") {
+        return jsonResponse({
+          ok: true,
+          provider: "awin",
+          domain: "shop.example",
+          cacheHit: false,
+          fetched: true,
+          candidateCount: 1,
+          candidates: [
+            {
+              sourceId: "awin",
+              domain: "shop.example",
+              code: "AWIN10",
+              label: "10% off",
+              expiresAt: "2026-12-31",
+              confidence: 0.8,
+            },
+          ],
+          errors: [],
+        });
+      }
+      if (url === "/admin/source-import/awin") {
+        return jsonResponse({
+          ok: true,
+          provider: "awin",
+          domain: "shop.example",
+          candidatesAccepted: 1,
+          codesImported: 1,
+          provenanceRecorded: 1,
+          rejected: 0,
+          errors: [],
+          // Server-side bug check: never render these even if smuggled in.
+          apiKey: "leaked-api-key",
+          Authorization: "Bearer leaked-token",
+          rawPayload: "<!doctype html>raw-html",
+          envVars: { SALVARE_AWIN_API_KEY: "should-never-render" },
+        });
+      }
+      return jsonResponse({});
+    });
+
+    h.fill("source-preview-domain", "shop.example");
+    h.click("source-preview-btn");
+    await h.waitFor(
+      () =>
+        (h.document.getElementById("source-preview-status")?.textContent ??
+          "") === "Preview ok (not saved).",
+    );
+
+    const confirmInput = h.document.getElementById(
+      "source-import-confirm",
+    ) as HTMLInputElement;
+    confirmInput.value = "IMPORT";
+    confirmInput.dispatchEvent(new (h.window as unknown as { Event: typeof Event }).Event("input", { bubbles: true }));
+
+    h.click("source-import-btn");
+
+    await h.waitFor(() =>
+      h.fetchCalls.some((c) => c.url.includes("/admin/source-import/awin")),
+    );
+
+    const call = h.fetchCalls.find((c) =>
+      c.url.includes("/admin/source-import/awin"),
+    )!;
+    expect(call.method).toBe("POST");
+    expect(call.headers["Content-Type"]).toBe("application/json");
+    expect(call.headers["Authorization"]).toBe("Bearer tok-imp-789");
+    expect(JSON.parse(call.body)).toEqual({
+      domain: "shop.example",
+      confirm: "IMPORT",
+    });
+
+    await h.waitFor(() =>
+      (h.document.getElementById("source-import-status")?.textContent ?? "")
+        .toLowerCase()
+        .includes("imported"),
+    );
+
+    const summaryText =
+      h.document.getElementById("source-import-summary")?.textContent ?? "";
+    expect(summaryText).toContain("candidatesAccepted");
+    expect(summaryText).toContain("codesImported");
+    expect(summaryText).toContain("provenanceRecorded");
+    expect(summaryText).toContain("rejected");
+    expect(summaryText).not.toContain("apiKey");
+    expect(summaryText).not.toContain("Authorization");
+    expect(summaryText).not.toContain("Bearer");
+    expect(summaryText).not.toContain("leaked-api-key");
+    expect(summaryText).not.toContain("leaked-token");
+    expect(summaryText).not.toContain("raw-html");
+    expect(summaryText).not.toContain("SALVARE_AWIN_API_KEY");
+    expect(summaryText).not.toContain("should-never-render");
+  });
+
   it("makes only the one source-preview POST per click and no coupon-write requests", async () => {
     h.setResponder((url) => {
       if (url === "/admin/source-preview/awin") {

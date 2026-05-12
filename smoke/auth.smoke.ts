@@ -38,6 +38,11 @@ test.describe("token-mode smoke", () => {
       await expect(page.locator("#import-results-confirm")).toBeVisible();
       await expect(page.locator("#import-results-apply")).toBeVisible();
       await expect(page.locator("#import-results-apply")).toBeDisabled();
+      await expect(
+        page.getByRole("heading", { name: "Source preview" }),
+      ).toBeVisible();
+      await expect(page.locator("#source-preview-domain")).toBeVisible();
+      await expect(page.locator("#source-preview-btn")).toBeVisible();
     });
 
     test("entering correct token loads seeded domains; clearing returns to banner", async ({

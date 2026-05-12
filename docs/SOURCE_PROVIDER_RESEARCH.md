@@ -42,6 +42,34 @@
 > changes, no `/coupons` response changes, no export/import shape changes,
 > no ranking changes, no schema changes, and no live HTTP in tests.
 >
+> **v0.36.0 status (2026-05-12):** Admin Awin **preview → confirm → import**
+> flow added. New admin-protected `POST /admin/source-import/awin`
+> ([`server/admin-source-import-routes.ts`](../server/admin-source-import-routes.ts))
+> requires body `{ "domain", "confirm": "IMPORT" }`, re-derives candidates
+> server-side via the same injectable Awin preview function used by the
+> v0.34 route (cache-preferred via v0.33), and never trusts client-posted
+> candidate arrays for DB writes. Server-side it drops candidates whose
+> `sourceId !== "awin"` or whose `domain` differs from the request domain,
+> dedupes by code, then calls a new additive writer
+> ([`server/db-source-import.ts`](../server/db-source-import.ts)) that
+> upserts the `stores` row without deleting existing codes, `INSERT`s only
+> missing `coupon_codes` rows, and records `coupon_code_sources` rows with
+> `source_id="awin"` idempotently. Re-import is a no-op
+> (`codesImported`/`provenanceRecorded` both drop to zero). `coupon_results`
+> is never read or written. The admin UI gains an **Import previewed
+> candidates** button gated by the prior preview returning candidates and
+> an exact `IMPORT` confirmation phrase (server still validates). Response
+> shape is allowlisted (`provider`, `domain`, `candidatesAccepted`,
+> `codesImported`, `provenanceRecorded`, `rejected`, `errors`) and never
+> echoes the API key, `Authorization`, env vars, the DB path, raw payloads,
+> raw HTML, stack traces, or affiliate/tracking fields. Provider remains
+> disabled by default; live activation outside local development still
+> requires the §4 terms/safety checklist below, a verified publisher
+> account, and per-merchant program approval. **Still out of scope:**
+> automatic checkout testing, automatic apply, extension behavior changes,
+> ranking/test-order changes, public `/coupons` shape changes, export/import
+> JSON shape changes, DB schema changes, and any live HTTP in tests.
+>
 > **v0.35.0 status (2026-05-12):** Admin UI control added for the v0.34
 > source-preview route. The admin shell
 > ([`server/admin.html`](../server/admin.html)) now renders a minimal

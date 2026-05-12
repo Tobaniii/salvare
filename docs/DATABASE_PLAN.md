@@ -212,6 +212,10 @@ Additive column on `source_cache` so the v0.32 mocked Awin provider adapter can 
 - `db:verify` checks (`tables_present`, `indexes_present`, orphan checks) are unchanged; column-level shape is not enforced and the cache is treated as untrusted on read.
 - Public API response shapes (`/coupons`, `/admin/coupons`, `/admin/coupon-stats`, `/admin/export/*`, `/admin/import/*`, `/results`, `/health`), export/import JSON shapes, ranking, admin UI, and extension behavior are **unchanged**.
 
+## 9f. v0.36.0 — additive provider-candidate writes
+
+No DB schema change. v0.36.0 lands the first writer that puts Awin provider candidates into `coupon_codes` and records `coupon_code_sources` with `source_id="awin"`. The writer lives in [`server/db-source-import.ts`](../server/db-source-import.ts) and is **additive only**: it upserts the `stores` row without deleting existing `coupon_codes` rows, `INSERT`s only codes that are not already present for the store, and records `coupon_code_sources` for `(store_id, code, 'awin')` triples that do not yet exist. Pre-existing seed/admin/import codes are preserved; non-Awin provenance survives untouched. Re-importing the same preview is idempotent (`codesImported` and `provenanceRecorded` both drop to zero on the second call). `coupon_results` is never read, written, or deleted by this writer. The existing destructive `upsertCouponCodes`/`importCouponsExport` writers — and their `pruneCouponCodeSourcesForStore` calls — are untouched, so admin replace and JSON-import semantics from v0.28 are unchanged. Public API response shapes (`/coupons`, `/admin/coupons`, `/admin/coupon-stats`, `/admin/export/*`, `/admin/import/*`, `/results`, `/health`), export/import JSON shapes, ranking, and extension behavior are **unchanged**.
+
 ## 10. Out of scope
 
 - Hosted database, replication, or remote sync.

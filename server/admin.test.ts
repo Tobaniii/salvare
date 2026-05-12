@@ -79,7 +79,7 @@ describe("getAdminHtml", () => {
     const html = getAdminHtml();
     expect(html).toContain("Source preview");
     expect(html).toContain("Provider: Awin");
-    expect(html).toContain("Preview only");
+    expect(html).toContain("nothing is saved on");
     expect(html).toContain('id="source-preview-domain"');
     expect(html).toContain('id="source-preview-btn"');
     expect(html).toContain('id="source-preview-status"');
@@ -94,5 +94,15 @@ describe("getAdminHtml", () => {
     expect(html).not.toContain("source-preview-import");
     expect(html).not.toContain("/admin/source-preview/apply");
     expect(html).not.toContain("/admin/source-preview/import");
+  });
+
+  it("includes the source import controls and caption clarifying no auto-test/auto-apply", () => {
+    const html = getAdminHtml();
+    expect(html).toContain('id="source-import-confirm"');
+    expect(html).toContain('id="source-import-btn"');
+    expect(html).toContain("Import previewed candidates");
+    expect(html).toContain("/admin/source-import/awin");
+    expect(html).toContain("not");
+    expect(html).toContain("auto-tested or auto-applied");
   });
 });

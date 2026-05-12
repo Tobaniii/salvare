@@ -397,6 +397,64 @@ Rendering is allowlisted client-side from the route's already-allowlisted respon
 
 DOM behavior is covered by [`server/admin-source-preview-client.test.ts`](../server/admin-source-preview-client.test.ts) (happy-dom, mocked `fetch`); HTML markers by [`server/admin.test.ts`](../server/admin.test.ts); visibility by [`smoke/admin.smoke.ts`](../smoke/admin.smoke.ts) and [`smoke/auth.smoke.ts`](../smoke/auth.smoke.ts). The smoke checks deliberately assert only that the controls render — they do not depend on the provider being enabled or on any API key being configured.
 
+### Admin source import endpoint (v0.36.0)
+
+`POST /admin/source-import/awin` is the admin-protected, confirmed, additive counterpart to the v0.34 preview route. It reuses the same injectable Awin preview function and the same v0.32/v0.33 mocked feature-flag + cache-read-short-circuit machinery — the client never posts candidate arrays for DB writes. Auth is identical to the preview route (401 when `SALVARE_ADMIN_TOKEN` is set and missing/wrong, open otherwise) and the route is covered in [`server/auth-routes.test.ts`](../server/auth-routes.test.ts) protected-endpoint matrix.
+
+Request body (minimal and safe — only domain + confirmation phrase):
+
+```json
+{ "domain": "example.com", "confirm": "IMPORT" }
+```
+
+`confirm` **must** equal the exact string `IMPORT`; any other value returns `400 { "ok": false, "error": "confirmation required" }`. Client-side confirmation is UX only — the server gate is mandatory. Missing/malformed `domain` returns `400 { "ok": false, "error": "invalid domain" }` and never echoes the bad payload.
+
+On success the handler:
+
+1. Calls the injected Awin preview function for the requested `domain` (cache-preferred via v0.33).
+2. Server-side re-derives the candidate list from the adapter's already-redacted result, drops candidates whose `sourceId !== "awin"` or `domain !== <request domain>`, and dedupes by code.
+3. Calls `importProviderCandidates` ([`server/db-source-import.ts`](../server/db-source-import.ts)), which in one transaction: ensures the `awin` row in `coupon_sources`, upserts the `stores` row **without** deleting existing codes, `INSERT`s any missing `coupon_codes` rows, and records `coupon_code_sources` with `source_id="awin"` for codes that don't already have Awin provenance. Re-import is idempotent. Existing seed/admin/import codes — and their non-Awin provenance — are never deleted.
+
+`coupon_results` is never read, written, or deleted by this route. The ranking path, extension behavior, public `/coupons` response shape, and export/import JSON shapes are all unchanged.
+
+Success response shape:
+
+```json
+{
+  "ok": true,
+  "provider": "awin",
+  "domain": "example.com",
+  "candidatesAccepted": 2,
+  "codesImported": 2,
+  "provenanceRecorded": 2,
+  "rejected": 1,
+  "errors": []
+}
+```
+
+Disabled / fail-closed (still HTTP 200 — the boundary itself succeeded; nothing was written):
+
+```json
+{
+  "ok": false,
+  "provider": "awin",
+  "domain": "example.com",
+  "disabled": true,
+  "reason": "disabled",
+  "candidatesAccepted": 0,
+  "codesImported": 0,
+  "provenanceRecorded": 0,
+  "rejected": 0,
+  "errors": []
+}
+```
+
+`reason` uses the same fixed allowlist as the preview route. The response never includes the admin token, the API key, the `Authorization` header, cookies, `localStorage`, env vars, the DB path, raw provider payloads, raw HTML, stack traces, or affiliate/tracking fields. Behavior is covered by [`server/admin-source-import-routes.test.ts`](../server/admin-source-import-routes.test.ts); CI never reaches the live Awin endpoint.
+
+### Admin UI source import (v0.36.0)
+
+Below the existing **Source preview** results, the admin shell renders an `IMPORT` confirmation input and an **Import previewed candidates** button. The button stays disabled until (a) the most recent preview returned at least one candidate and (b) the confirmation input value is exactly `IMPORT`. Clicking the button issues exactly one `POST /admin/source-import/awin` with the existing `authHeaders()` and body `{ "domain": <previewed domain>, "confirm": "IMPORT" }`. The result panel renders only the allowlisted summary fields (`provider`, `domain`, `candidatesAccepted`, `codesImported`, `provenanceRecorded`, `rejected`); forbidden fields cannot reach the DOM for the same reason as the preview section. There is **no Apply-to-checkout button, no automatic test/apply, and no extension behavior change** — imported candidates are saved as candidate codes only and enter the normal `/coupons` flow on the next extension request.
+
 ### Using the admin UI in token mode
 
 `GET /admin` is unprotected so the static admin shell can load in a browser even when token auth is on. The shell renders an "Admin token required or invalid" banner and an **Admin token** bar at the top of the page until a valid token is provided.
