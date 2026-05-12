@@ -331,6 +331,64 @@ The admin shell includes an **Import data** section with two independent blocks:
 
 Coupons and result-history imports are independent: previewing or applying one block has no effect on the other. There is **no auto-apply after preview**, **no drag-and-drop**, **no admin reset UI**, and the committed bootstrap JSON files (`server/coupons.seed.json`, `server/coupon-results.json`) are never mutated by any browser action.
 
+### Admin source preview endpoint
+
+`POST /admin/source-preview/awin` exposes the mocked, feature-flagged Awin provider adapter (v0.32/v0.33) through a preview-only HTTP boundary. The route is protected when `SALVARE_ADMIN_TOKEN` is configured and open otherwise, matching the rest of the `/admin/*` surface. It is **preview-only**: it never writes to `coupon_codes` or `coupon_results`, never imports or applies anything, never calls into the ranking path, and exposes no admin UI control. The only persistence the route can produce is the adapter's existing internal bookkeeping — `source_fetch_log`, `source_cache`, and one-time runtime `coupon_sources` registration — and only when the feature flag and API key are both present.
+
+The provider stays **disabled by default**. Live activation outside local development still requires the §4 terms/safety checklist in [`docs/SOURCE_PROVIDER_RESEARCH.md`](SOURCE_PROVIDER_RESEARCH.md), a verified publisher account, and per-merchant program approval. Without `SALVARE_SOURCE_PROVIDER_ENABLED=true`, `SALVARE_SOURCE_PROVIDER=awin`, and a non-blank `SALVARE_AWIN_API_KEY`, the route short-circuits to a disabled response and never touches the network.
+
+Request body:
+
+```json
+{ "domain": "example.com", "query": "optional-cache-key" }
+```
+
+`domain` is validated by the same `validateDomain` primitive used by the v0.30 adapters (lowercased, bounded length, strict pattern). `query`, when supplied, becomes the adapter's cache key — it must match the cache-key pattern (`/^[a-z0-9][a-z0-9._:/-]{0,255}$/`). Invalid input returns `400 { "ok": false, "error": "invalid domain" | "invalid query" | "invalid preview payload" }` with no echo of the bad payload.
+
+Successful preview response shape:
+
+```json
+{
+  "ok": true,
+  "provider": "awin",
+  "domain": "example.com",
+  "cacheHit": false,
+  "fetched": true,
+  "candidateCount": 2,
+  "candidates": [
+    {
+      "sourceId": "awin",
+      "domain": "example.com",
+      "code": "SAVE10",
+      "label": "10% off",
+      "expiresAt": "2026-12-31"
+    }
+  ],
+  "errors": []
+}
+```
+
+Disabled / fail-closed response (still HTTP 200 since the boundary itself succeeded):
+
+```json
+{
+  "ok": false,
+  "provider": "awin",
+  "domain": "example.com",
+  "cacheHit": false,
+  "fetched": false,
+  "disabled": true,
+  "reason": "flag_off",
+  "candidateCount": 0,
+  "candidates": [],
+  "errors": []
+}
+```
+
+`reason` comes from a fixed allowlist (`disabled`, `missing_api_key`, `rate_limited`, `cache_fresh`, `unknown_source`, `http_4xx`, `http_5xx`, `fetch_error`, `timeout`, `parse_error`, `empty_response`); any non-allowlisted adapter error collapses to `unknown_error`. The response contains only the fields shown above. It never includes the admin token, the API key, the `Authorization` header, cookies, `localStorage`, env vars, the DB path, raw provider payloads, raw HTML, request URLs with secrets, stack traces, or affiliate/tracking fields. Candidates are rebuilt server-side from a strict allowlist; affiliate fields are already stripped by the adapter (see v0.32 release notes in [`docs/SOURCE_PROVIDER_RESEARCH.md`](SOURCE_PROVIDER_RESEARCH.md)) and are re-confirmed here.
+
+The route is fully covered by mocked tests ([`server/admin-source-preview-routes.test.ts`](../server/admin-source-preview-routes.test.ts)); CI never reaches the live Awin endpoint. Per-request the server constructs an adapter wired to a thin Node `fetch` wrapper, but the adapter only invokes that wrapper after the feature-flag and API-key checks pass — so absent valid credentials, no outbound request is made.
+
 ### Using the admin UI in token mode
 
 `GET /admin` is unprotected so the static admin shell can load in a browser even when token auth is on. The shell renders an "Admin token required or invalid" banner and an **Admin token** bar at the top of the page until a valid token is provided.

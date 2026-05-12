@@ -29,17 +29,67 @@ import {
 import { handleAdminCoreRoute } from "./admin-routes";
 import { handleAdminExportRoute } from "./admin-export-routes";
 import { handleAdminImportRoute } from "./admin-import-routes";
+import {
+  handleAdminSourcePreviewRoute,
+  type AwinPreviewFn,
+} from "./admin-source-preview-routes";
+import { readAwinConfig, type AwinProviderConfig } from "./source-provider-config";
+import {
+  createAwinAdapter,
+  type AwinFetcher,
+  type AwinFetchInput,
+} from "./source-provider-awin";
 
 export interface SalvareServerOptions {
   db: Db;
   adminToken: string | null;
   /** Service version reported by GET /health. Defaults to SALVARE_VERSION. */
   version?: string;
+  /**
+   * Optional Awin preview function used by `POST /admin/source-preview/awin`.
+   * Tests inject a stub so the live Node `fetch` path is never reached. When
+   * unset, the server constructs a default that reads `readAwinConfig(process.env)`
+   * per request and only invokes the network when the feature flag and key
+   * are both present (the adapter itself fails closed otherwise).
+   */
+  awinPreview?: AwinPreviewFn;
+}
+
+const DEFAULT_AWIN_FETCHER: AwinFetcher = async (url, init) => {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), init.timeoutMs);
+  try {
+    const resp = await fetch(url, {
+      headers: init.headers,
+      signal: ac.signal,
+    });
+    const text = await resp.text();
+    return { status: resp.status, body: text };
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+function createDefaultAwinPreview(db: Db): AwinPreviewFn {
+  return (input: AwinFetchInput) => {
+    const config = readAwinConfig(process.env);
+    const adapter = createAwinAdapter({
+      // The adapter validates `config.enabled` at call time; the disabled
+      // branch never reaches the fetcher. Cast widens the union to the
+      // enabled shape the adapter expects in its options type.
+      config: config as AwinProviderConfig,
+      fetcher: DEFAULT_AWIN_FETCHER,
+      db,
+    });
+    return adapter.fetchAndParse(input);
+  };
 }
 
 export function createSalvareServer(options: SalvareServerOptions): Server {
   const { db, adminToken } = options;
   const version = options.version ?? SALVARE_VERSION;
+  const awinPreview: AwinPreviewFn =
+    options.awinPreview ?? createDefaultAwinPreview(db);
 
   function requireAuth(req: IncomingMessage, res: ServerResponse): boolean {
     if (isAuthorized(req.headers, adminToken)) return true;
@@ -168,6 +218,7 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
     if (await handleAdminCoreRoute(ctx)) return;
     if (handleAdminExportRoute(ctx)) return;
     if (await handleAdminImportRoute(ctx)) return;
+    if (await handleAdminSourcePreviewRoute(ctx, awinPreview)) return;
 
     sendJson(res, 404, { error: "not found" });
   }

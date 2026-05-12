@@ -26,6 +26,21 @@
 > Awin calls in tests, no automatic import/apply, no source endpoint, no
 > admin UI, no extension changes. Live activation outside local
 > development still requires the §4 terms checklist.
+>
+> **v0.34.0 status (2026-05-11):** Admin-protected source-preview boundary
+> added at `POST /admin/source-preview/awin`
+> ([`server/admin-source-preview-routes.ts`](../server/admin-source-preview-routes.ts)).
+> The route is preview-only: it calls the mocked, feature-flagged Awin
+> adapter through an injectable preview function, rebuilds candidates from
+> an explicit allowlist, and writes nothing to `coupon_codes` or
+> `coupon_results`. Allowed writes are still only the adapter's existing
+> `source_fetch_log`, `source_cache`, and runtime `coupon_sources`
+> registration. Disabled-by-default behavior is unchanged; live Awin
+> activation still depends on completing the §4 terms/safety checklist
+> below, a verified publisher account, and per-merchant program approval.
+> No admin UI controls, no automatic import/apply, no extension behavior
+> changes, no `/coupons` response changes, no export/import shape changes,
+> no ranking changes, no schema changes, and no live HTTP in tests.
 
 
 This document evaluates candidate coupon source providers, APIs, and feeds for Salvare's first real trusted source integration. It is research-only: no adapter, no network fetching, no API keys, and no schema changes are introduced in this milestone. The recommendation here informs v0.32.0 implementation work.
