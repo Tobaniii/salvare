@@ -35,6 +35,7 @@ import {
 } from "./admin-source-preview-routes";
 import { handleAdminSourceImportRoute } from "./admin-source-import-routes";
 import { handleAdminSourceSummaryRoute } from "./admin-source-summary-routes";
+import { getSourceAwareCandidateOrder } from "./db-candidate-order";
 import { readAwinConfig, type AwinProviderConfig } from "./source-provider-config";
 import {
   createAwinAdapter,
@@ -147,7 +148,14 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
         return;
       }
       const codes = getCandidateCodesForDomain(db, domain);
-      const response = buildCouponResponse(domain, codes);
+      // Source-aware pre-rank (v0.38.0): re-orders codes using only
+      // allowlisted provenance fields. Internal-only reordering — the
+      // response shape and the set of codes returned are unchanged.
+      // History-based `rankCandidateCodes` runs after this and continues
+      // to dominate; this only seeds the input order for untested or
+      // history-tied codes.
+      const sourceOrdered = getSourceAwareCandidateOrder(db, domain, codes);
+      const response = buildCouponResponse(domain, sourceOrdered);
       const ranked = rankCandidateCodes(
         response.candidateCodes,
         getResultsForDomain(db, domain),
