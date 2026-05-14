@@ -141,6 +141,11 @@ const PROTECTED_ENDPOINTS: Array<{
       body: JSON.stringify({ domain: "example.com", confirm: "IMPORT" }),
     },
   },
+  {
+    name: "GET /admin/source-summary",
+    path: "/admin/source-summary?domain=example.com",
+    init: { method: "GET" },
+  },
 ];
 
 describe("auth disabled (no SALVARE_ADMIN_TOKEN)", () => {

@@ -34,6 +34,7 @@ import {
   type AwinPreviewFn,
 } from "./admin-source-preview-routes";
 import { handleAdminSourceImportRoute } from "./admin-source-import-routes";
+import { handleAdminSourceSummaryRoute } from "./admin-source-summary-routes";
 import { readAwinConfig, type AwinProviderConfig } from "./source-provider-config";
 import {
   createAwinAdapter,
@@ -221,6 +222,7 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
     if (await handleAdminImportRoute(ctx)) return;
     if (await handleAdminSourcePreviewRoute(ctx, awinPreview)) return;
     if (await handleAdminSourceImportRoute(ctx, awinPreview)) return;
+    if (handleAdminSourceSummaryRoute(ctx)) return;
 
     sendJson(res, 404, { error: "not found" });
   }

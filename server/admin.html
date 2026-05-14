@@ -522,6 +522,26 @@
       <div id="source-import-summary"></div>
     </section>
 
+    <section class="source-preview-bar" aria-label="Stored source claims">
+      <h2>Stored source claims (provenance)</h2>
+      <p class="domain-empty">
+        Read-only view of which sources claim coupon codes for a domain in
+        the local database. <strong>Not</strong> a live provider preview —
+        no fetch, no import, no edits, no deletes.
+      </p>
+      <div class="source-preview-row">
+        <input
+          id="source-summary-domain"
+          type="text"
+          placeholder="example.com"
+          autocomplete="off"
+        />
+        <button id="source-summary-btn" type="button">Look up</button>
+      </div>
+      <div id="source-summary-status"></div>
+      <div id="source-summary-results"></div>
+    </section>
+
     <div id="auth-banner" role="alert">
       Admin token required or invalid. Paste a valid token above and click Save.
     </div>
@@ -550,8 +570,9 @@
       <code>GET /admin/export/results</code>,
       <code>POST /admin/import/preview/{coupons,results}</code>,
       <code>POST /admin/import/apply/{coupons,results}</code>,
-      <code>POST /admin/source-preview/awin</code>, and
-      <code>POST /admin/source-import/awin</code>.
+      <code>POST /admin/source-preview/awin</code>,
+      <code>POST /admin/source-import/awin</code>, and
+      <code>GET /admin/source-summary</code>.
     </footer>
 
     <script>
@@ -1578,6 +1599,226 @@
           .catch(function (err) {
             setSourceImportStatus("Import failed: " + err.message, "error");
             refreshSourceImportEnabled();
+          });
+      });
+
+      var sourceSummaryDomainInput = document.getElementById(
+        "source-summary-domain",
+      );
+      var sourceSummaryBtn = document.getElementById("source-summary-btn");
+      var sourceSummaryStatusEl = document.getElementById(
+        "source-summary-status",
+      );
+      var sourceSummaryResultsEl = document.getElementById(
+        "source-summary-results",
+      );
+
+      var SOURCE_SUMMARY_SOURCE_FIELDS = [
+        "sourceId",
+        "sourceName",
+        "sourceType",
+        "discoveredAt",
+        "label",
+        "expiresAt",
+        "confidence",
+      ];
+
+      function setSourceSummaryStatus(message, kind) {
+        sourceSummaryStatusEl.textContent = message || "";
+        sourceSummaryStatusEl.className = kind ? kind : "";
+      }
+
+      function clearSourceSummaryResults() {
+        sourceSummaryResultsEl.innerHTML = "";
+      }
+
+      function renderSourceSummaryHeader(body) {
+        var dl = document.createElement("dl");
+        dl.className = "preview-summary";
+        appendKv(
+          dl,
+          "domain",
+          typeof body.domain === "string" ? body.domain : "—",
+        );
+        appendKv(
+          dl,
+          "storeId",
+          body.storeId === null || body.storeId === undefined
+            ? "—"
+            : String(body.storeId),
+        );
+        appendKv(
+          dl,
+          "codeCount",
+          String(typeof body.codeCount === "number" ? body.codeCount : 0),
+        );
+        appendKv(
+          dl,
+          "sourceCount",
+          String(typeof body.sourceCount === "number" ? body.sourceCount : 0),
+        );
+        appendKv(dl, "truncated", body.truncated === true ? "yes" : "no");
+        sourceSummaryResultsEl.appendChild(dl);
+      }
+
+      function renderSourceSummaryCounts(body) {
+        if (
+          !Array.isArray(body.sourceSummary) ||
+          body.sourceSummary.length === 0
+        ) {
+          return;
+        }
+        var h3 = document.createElement("h3");
+        h3.style.fontSize = "13px";
+        h3.style.margin = "8px 0 4px";
+        h3.textContent = "Per-source counts";
+        sourceSummaryResultsEl.appendChild(h3);
+
+        var table = document.createElement("table");
+        var thead = document.createElement("thead");
+        thead.innerHTML =
+          "<tr><th>sourceId</th><th>sourceName</th>" +
+          "<th>sourceType</th><th>codeCount</th></tr>";
+        table.appendChild(thead);
+        var tbody = document.createElement("tbody");
+        body.sourceSummary.forEach(function (row) {
+          var tr = document.createElement("tr");
+          ["sourceId", "sourceName", "sourceType", "codeCount"].forEach(
+            function (f) {
+              var td = document.createElement("td");
+              var v = row && row[f];
+              td.textContent =
+                v === undefined || v === null ? "—" : String(v);
+              tr.appendChild(td);
+            },
+          );
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        sourceSummaryResultsEl.appendChild(table);
+      }
+
+      function renderSourceSummaryCodes(body) {
+        var h3 = document.createElement("h3");
+        h3.style.fontSize = "13px";
+        h3.style.margin = "12px 0 4px";
+        h3.textContent = "Codes and source claims";
+        sourceSummaryResultsEl.appendChild(h3);
+
+        if (!Array.isArray(body.codes) || body.codes.length === 0) {
+          var empty = document.createElement("p");
+          empty.className = "domain-empty";
+          empty.textContent = "No codes stored for this domain.";
+          sourceSummaryResultsEl.appendChild(empty);
+          return;
+        }
+
+        var table = document.createElement("table");
+        var thead = document.createElement("thead");
+        thead.innerHTML =
+          "<tr><th>code</th>" +
+          SOURCE_SUMMARY_SOURCE_FIELDS.map(function (f) {
+            return "<th>" + f + "</th>";
+          }).join("") +
+          "</tr>";
+        table.appendChild(thead);
+        var tbody = document.createElement("tbody");
+        body.codes.forEach(function (entry) {
+          var sources = Array.isArray(entry.sources) ? entry.sources : [];
+          if (sources.length === 0) {
+            var tr = document.createElement("tr");
+            var codeCell = document.createElement("td");
+            codeCell.textContent = entry && entry.code ? entry.code : "—";
+            tr.appendChild(codeCell);
+            SOURCE_SUMMARY_SOURCE_FIELDS.forEach(function () {
+              var td = document.createElement("td");
+              td.textContent = "—";
+              tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+            return;
+          }
+          sources.forEach(function (claim, idx) {
+            var tr = document.createElement("tr");
+            var codeCell = document.createElement("td");
+            codeCell.textContent =
+              idx === 0 && entry && entry.code ? entry.code : "";
+            tr.appendChild(codeCell);
+            SOURCE_SUMMARY_SOURCE_FIELDS.forEach(function (f) {
+              var td = document.createElement("td");
+              var v = claim && claim[f];
+              td.textContent =
+                v === undefined || v === null ? "—" : String(v);
+              tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+          });
+        });
+        table.appendChild(tbody);
+        sourceSummaryResultsEl.appendChild(table);
+      }
+
+      function renderSourceSummary(body) {
+        clearSourceSummaryResults();
+        renderSourceSummaryHeader(body);
+        renderSourceSummaryCounts(body);
+        renderSourceSummaryCodes(body);
+      }
+
+      sourceSummaryBtn.addEventListener("click", function () {
+        var domain = sourceSummaryDomainInput.value.trim();
+        if (!domain) {
+          setSourceSummaryStatus("Domain is required.", "error");
+          return;
+        }
+        setSourceSummaryStatus("Looking up…");
+        clearSourceSummaryResults();
+        fetch(
+          "/admin/source-summary?domain=" + encodeURIComponent(domain),
+          { headers: authHeaders() },
+        )
+          .then(function (r) {
+            if (r.status === 401) {
+              setAuthBannerVisible(true);
+              setSourceSummaryStatus(
+                "Lookup failed: unauthorized.",
+                "error",
+              );
+              return null;
+            }
+            return r.json().then(function (body) {
+              return { ok: r.ok, body: body };
+            });
+          })
+          .then(function (result) {
+            if (result === null) return;
+            var body = result.body;
+            if (!result.ok || !body || body.ok === false) {
+              setSourceSummaryStatus(
+                "Lookup failed: " +
+                  (body && typeof body.error === "string"
+                    ? body.error
+                    : "unknown error"),
+                "error",
+              );
+              return;
+            }
+            if (body.storeId === null) {
+              setSourceSummaryStatus(
+                "No store stored for this domain.",
+                "",
+              );
+              renderSourceSummary(body);
+              return;
+            }
+            setSourceSummaryStatus("Loaded.", "ok");
+            renderSourceSummary(body);
+          })
+          .catch(function (err) {
+            setSourceSummaryStatus(
+              "Lookup failed: " + err.message,
+              "error",
+            );
           });
       });
 

@@ -36,6 +36,12 @@ test.describe("admin page UI", () => {
     await expect(page.locator("#source-preview-domain")).toBeVisible();
     await expect(page.locator("#source-preview-btn")).toBeVisible();
 
+    await expect(
+      page.getByRole("heading", { name: /Stored source claims/ }),
+    ).toBeVisible();
+    await expect(page.locator("#source-summary-domain")).toBeVisible();
+    await expect(page.locator("#source-summary-btn")).toBeVisible();
+
     const seededDomain = page.locator(".domain-name", { hasText: "smoke.test" });
     await expect(seededDomain).toBeVisible();
 

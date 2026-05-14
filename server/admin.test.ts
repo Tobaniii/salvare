@@ -105,4 +105,23 @@ describe("getAdminHtml", () => {
     expect(html).toContain("not");
     expect(html).toContain("auto-tested or auto-applied");
   });
+
+  it("includes the read-only source provenance (stored claims) section with domain input, lookup button, and results container", () => {
+    const html = getAdminHtml();
+    expect(html).toContain("Stored source claims");
+    expect(html).toContain('id="source-summary-domain"');
+    expect(html).toContain('id="source-summary-btn"');
+    expect(html).toContain('id="source-summary-status"');
+    expect(html).toContain('id="source-summary-results"');
+    expect(html).toContain("/admin/source-summary");
+    expect(html).toContain("Read-only");
+  });
+
+  it("does not include any source-summary write/edit/delete controls", () => {
+    const html = getAdminHtml();
+    expect(html).not.toContain("source-summary-delete");
+    expect(html).not.toContain("source-summary-edit");
+    expect(html).not.toContain("source-summary-import");
+    expect(html).not.toContain("source-summary-apply");
+  });
 });

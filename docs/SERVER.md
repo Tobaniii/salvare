@@ -451,6 +451,51 @@ Disabled / fail-closed (still HTTP 200 — the boundary itself succeeded; nothin
 
 `reason` uses the same fixed allowlist as the preview route. The response never includes the admin token, the API key, the `Authorization` header, cookies, `localStorage`, env vars, the DB path, raw provider payloads, raw HTML, stack traces, or affiliate/tracking fields. Behavior is covered by [`server/admin-source-import-routes.test.ts`](../server/admin-source-import-routes.test.ts); CI never reaches the live Awin endpoint.
 
+### Admin source summary endpoint (v0.37.0)
+
+`GET /admin/source-summary?domain=<domain>` is a protected, **read-only** view that surfaces which sources claim coupon codes for a given domain. It executes SELECT-only joins across `stores`, `coupon_codes`, `coupon_code_sources`, and `coupon_sources` via [`server/db-source-summary.ts`](../server/db-source-summary.ts). No writes to `coupon_codes`, `coupon_code_sources`, `coupon_results`, `source_cache`, `source_fetch_log`, or `coupon_sources` ever occur. Auth is identical to the rest of the `/admin/*` surface and the route is covered in [`server/auth-routes.test.ts`](../server/auth-routes.test.ts) protected-endpoint matrix.
+
+`domain` is validated with the same strict `validateDomain` primitive used by the v0.34/v0.36 source routes. Invalid/missing/oversize/malformed domains return `400 { "ok": false, "error": "invalid domain" }` with no payload echo. Unknown domains return a safe empty summary (HTTP 200) with `storeId: null`.
+
+Response shape (allowlist; nullable fields are omitted when null/undefined):
+
+```json
+{
+  "domain": "shop.example",
+  "storeId": 7,
+  "codeCount": 4,
+  "sourceCount": 4,
+  "truncated": false,
+  "codes": [
+    {
+      "code": "AWIN10",
+      "sources": [
+        {
+          "sourceId": "awin",
+          "sourceName": "Awin",
+          "sourceType": "api",
+          "discoveredAt": "2026-05-12T00:00:00.000Z",
+          "label": "10% off",
+          "expiresAt": "2026-12-31",
+          "confidence": 80
+        }
+      ]
+    }
+  ],
+  "sourceSummary": [
+    { "sourceId": "admin", "sourceName": "Admin UI", "sourceType": "manual", "codeCount": 2 }
+  ]
+}
+```
+
+Codes are returned in `coupon_codes.id` ascending order; per-code source claims in `coupon_sources.id` ascending order. The output is bounded to 500 codes (see `SOURCE_SUMMARY_CODE_CAP`); larger stores set `truncated: true` and the `sourceSummary` counts reflect the same 500-row slice so the two arrays stay internally consistent. The `sourceUrl` column is **deliberately omitted** — it is not yet sanitizer-gated and may carry affiliate/tracking content in future writers. The response never includes API keys, the `Authorization` header, cookies, `localStorage`, env vars, the DB path, raw provider payloads, raw HTML, stack traces, or affiliate/tracking fields (`clickThroughUrl`, `trackingUrl`, `commissionRate`, `publisherId`, `deepLink`).
+
+Behavior is covered by [`server/admin-source-summary-routes.test.ts`](../server/admin-source-summary-routes.test.ts) (mixed seed/admin/import/awin provenance, multi-source same-code rendering, unknown-domain empty 200, 400 redaction, auth 401, read-only table-counts assertion, 500-cap truncation) and the inline-client DOM behavior by [`server/admin-source-summary-client.test.ts`](../server/admin-source-summary-client.test.ts).
+
+### Admin UI source summary (v0.37.0)
+
+A new **Stored source claims (provenance)** section in [`server/admin.html`](../server/admin.html) — clearly labelled as the read-only counterpart to the live preview/import sections — accepts a domain and a single **Look up** button that issues `GET /admin/source-summary?domain=…` with the existing `authHeaders()` helper. Results render via `textContent` only into two tables (per-source counts, code-by-source claims). No edit, delete, import, apply, or fetch controls. Empty/unknown-domain and 401 states render plain English messages; forbidden fields are never read off the response and cannot reach the DOM.
+
 ### Admin UI source import (v0.36.0)
 
 Below the existing **Source preview** results, the admin shell renders an `IMPORT` confirmation input and an **Import previewed candidates** button. The button stays disabled until (a) the most recent preview returned at least one candidate and (b) the confirmation input value is exactly `IMPORT`. Clicking the button issues exactly one `POST /admin/source-import/awin` with the existing `authHeaders()` and body `{ "domain": <previewed domain>, "confirm": "IMPORT" }`. The result panel renders only the allowlisted summary fields (`provider`, `domain`, `candidatesAccepted`, `codesImported`, `provenanceRecorded`, `rejected`); forbidden fields cannot reach the DOM for the same reason as the preview section. There is **no Apply-to-checkout button, no automatic test/apply, and no extension behavior change** — imported candidates are saved as candidate codes only and enter the normal `/coupons` flow on the next extension request.
