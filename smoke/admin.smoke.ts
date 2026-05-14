@@ -42,6 +42,13 @@ test.describe("admin page UI", () => {
     await expect(page.locator("#source-summary-domain")).toBeVisible();
     await expect(page.locator("#source-summary-btn")).toBeVisible();
 
+    await expect(
+      page.getByRole("heading", { name: "Source status" }),
+    ).toBeVisible();
+    await expect(page.locator("#source-status-btn")).toBeVisible();
+    await expect(page.locator("#source-status-btn")).toHaveText("Load status");
+    await expect(page.locator("#source-status-results")).toBeAttached();
+
     const seededDomain = page.locator(".domain-name", { hasText: "smoke.test" });
     await expect(seededDomain).toBeVisible();
 

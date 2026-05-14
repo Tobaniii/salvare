@@ -35,6 +35,8 @@ import {
 } from "./admin-source-preview-routes";
 import { handleAdminSourceImportRoute } from "./admin-source-import-routes";
 import { handleAdminSourceSummaryRoute } from "./admin-source-summary-routes";
+import { handleAdminSourceStatusRoute } from "./admin-source-status-routes";
+import type { ProviderStatusFn } from "./db-source-status";
 import { getSourceAwareCandidateOrder } from "./db-candidate-order";
 import { readAwinConfig, type AwinProviderConfig } from "./source-provider-config";
 import {
@@ -56,6 +58,14 @@ export interface SalvareServerOptions {
    * are both present (the adapter itself fails closed otherwise).
    */
   awinPreview?: AwinPreviewFn;
+  /**
+   * Optional per-source provider feature-flag / configured booleans used by
+   * `GET /admin/source-status` (v0.40.0). Tests can inject a stub so the
+   * handler stays env-free. When unset, the server consults
+   * `readAwinConfig(process.env)` for the `awin` source and reports
+   * `{ featureEnabled: false, configured: false }` for every other source.
+   */
+  providerStatus?: ProviderStatusFn;
 }
 
 const DEFAULT_AWIN_FETCHER: AwinFetcher = async (url, init) => {
@@ -72,6 +82,22 @@ const DEFAULT_AWIN_FETCHER: AwinFetcher = async (url, init) => {
     clearTimeout(timer);
   }
 };
+
+function createDefaultProviderStatus(): ProviderStatusFn {
+  return (sourceId: string) => {
+    if (sourceId !== "awin") {
+      return { featureEnabled: false, configured: false };
+    }
+    const config = readAwinConfig(process.env);
+    if (config.enabled) {
+      return { featureEnabled: true, configured: true };
+    }
+    if (config.reason === "missing_api_key") {
+      return { featureEnabled: true, configured: false };
+    }
+    return { featureEnabled: false, configured: false };
+  };
+}
 
 function createDefaultAwinPreview(db: Db): AwinPreviewFn {
   return (input: AwinFetchInput) => {
@@ -93,6 +119,8 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
   const version = options.version ?? SALVARE_VERSION;
   const awinPreview: AwinPreviewFn =
     options.awinPreview ?? createDefaultAwinPreview(db);
+  const providerStatus: ProviderStatusFn =
+    options.providerStatus ?? createDefaultProviderStatus();
 
   function requireAuth(req: IncomingMessage, res: ServerResponse): boolean {
     if (isAuthorized(req.headers, adminToken)) return true;
@@ -231,6 +259,7 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
     if (await handleAdminSourcePreviewRoute(ctx, awinPreview)) return;
     if (await handleAdminSourceImportRoute(ctx, awinPreview)) return;
     if (handleAdminSourceSummaryRoute(ctx)) return;
+    if (handleAdminSourceStatusRoute(ctx, providerStatus)) return;
 
     sendJson(res, 404, { error: "not found" });
   }

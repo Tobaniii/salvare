@@ -480,6 +480,6 @@ describe("source-refresh package script wiring", () => {
     };
     expect(pkg.scripts?.["build:source-refresh"]).toBeTypeOf("string");
     expect(pkg.scripts?.["source:refresh"]).toBeTypeOf("string");
-    expect(pkg.version).toBe("0.39.0");
+    expect(pkg.version).toBe("0.40.0");
   });
 });

@@ -500,6 +500,46 @@ A new **Stored source claims (provenance)** section in [`server/admin.html`](../
 
 Below the existing **Source preview** results, the admin shell renders an `IMPORT` confirmation input and an **Import previewed candidates** button. The button stays disabled until (a) the most recent preview returned at least one candidate and (b) the confirmation input value is exactly `IMPORT`. Clicking the button issues exactly one `POST /admin/source-import/awin` with the existing `authHeaders()` and body `{ "domain": <previewed domain>, "confirm": "IMPORT" }`. The result panel renders only the allowlisted summary fields (`provider`, `domain`, `candidatesAccepted`, `codesImported`, `provenanceRecorded`, `rejected`); forbidden fields cannot reach the DOM for the same reason as the preview section. There is **no Apply-to-checkout button, no automatic test/apply, and no extension behavior change** — imported candidates are saved as candidate codes only and enter the normal `/coupons` flow on the next extension request.
 
+### Admin source status endpoint (v0.40.0)
+
+`GET /admin/source-status` is a protected, **read-only** view that surfaces source / cache / fetch-log health for every row in `coupon_sources`. The handler executes SELECT-only aggregations via [`server/db-source-status.ts`](../server/db-source-status.ts) — no provider call, no fetcher, no importer, no refresh runner, and no writes to `coupon_codes`, `coupon_code_sources`, `coupon_results`, `coupon_sources`, `source_cache`, or `source_fetch_log`. Auth is identical to the rest of the `/admin/*` surface.
+
+The route takes no request body and ignores query parameters. Provider feature-flag and configured booleans are derived from `readAwinConfig(process.env)` at request time for the `awin` source (`featureEnabled` follows the env flag; `configured` is true only when a non-blank `SALVARE_AWIN_API_KEY` is also present). Env var values, the API key, the `Authorization` header, cookies, `localStorage`, the DB path, raw provider payloads, raw HTML, `body_sha256`, `metadata_json`, candidate arrays, source URLs, stack traces, and affiliate/tracking fields are never returned.
+
+Response shape (one row per `coupon_sources` row, ordered by `sourceId` ascending):
+
+```json
+{
+  "sources": [
+    {
+      "sourceId": "awin",
+      "sourceName": "Awin",
+      "sourceType": "api",
+      "enabled": true,
+      "providerFeatureEnabled": false,
+      "providerConfigured": false,
+      "lastFetchAt": "2026-05-14T11:30:00.000Z",
+      "lastFetchOutcome": "cache_hit",
+      "lastSafeError": null,
+      "cacheEntries": 2,
+      "freshCacheEntries": 1,
+      "staleCacheEntries": 1,
+      "cachedCandidateCount": 5,
+      "newestCacheAt": "2026-05-14T11:00:00.000Z",
+      "nextAllowedFetchAt": "2026-05-14T13:00:00.000Z"
+    }
+  ]
+}
+```
+
+`lastFetchOutcome` is one of the existing fetch-log outcome tokens (`ok`, `empty`, `error`, `rate_limited`, `cache_hit`) or `null`; any other stored value is mapped to `null` before emit. `lastSafeError` is re-validated against the same `^[a-z0-9][a-z0-9_-]{0,63}$` short-token pattern used by the fetch-log writer; anything else maps to `null`. `cachedCandidateCount` is derived only from `JSON.parse(candidates_json).length` per cache row and is bounded by the existing 32 KB / row write cap; corrupt or oversized rows contribute zero without throwing. `nextAllowedFetchAt` reflects the latest `expires_at` among **fresh** cache rows for the source, or `null` if no fresh row exists.
+
+Behavior is covered by [`server/db-source-status.test.ts`](../server/db-source-status.test.ts) (aggregation, redaction, corrupt-cache handling, read-only table-counts assertion) and [`server/admin-source-status-routes.test.ts`](../server/admin-source-status-routes.test.ts) (auth 401, allowlisted response shape, disabled / unconfigured provider booleans, read-only across repeated calls). No live HTTP runs in CI.
+
+### Admin UI source status (v0.40.0)
+
+A new **Source status** section in [`server/admin.html`](../server/admin.html) renders a single **Load status** button that issues `GET /admin/source-status` with the existing `authHeaders()` helper. Results render via `textContent` only into one row per source covering `sourceId`, `sourceName`, `sourceType`, `enabled`, `providerFeatureEnabled`, `providerConfigured`, `lastFetchAt`, `lastFetchOutcome`, `lastSafeError`, `cacheEntries`, `freshCacheEntries`, `staleCacheEntries`, `cachedCandidateCount`, `newestCacheAt`, and `nextAllowedFetchAt`. There is no refresh / fetch / import / apply / edit / delete control — the button is intentionally labelled **Load status**, not "Refresh source," to keep it visually distinct from the v0.34/v0.36 preview/import sections. Empty (`sources: []`) and unauthorized states render plain English messages; forbidden fields are never read off the response and cannot reach the DOM.
+
 ### Manual source refresh CLI (v0.39.0)
 
 A local-only shell entrypoint mirrors the v0.34/v0.36 admin preview + import flow for the mocked, feature-flagged Awin provider, so a developer can preview candidates and (with explicit confirmation) trigger an additive import without round-tripping through the admin UI.

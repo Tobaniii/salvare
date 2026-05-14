@@ -542,6 +542,21 @@
       <div id="source-summary-results"></div>
     </section>
 
+    <section class="source-preview-bar" aria-label="Source status">
+      <h2>Source status</h2>
+      <p class="domain-empty">
+        Read-only summary of source / cache / fetch-log health from the local
+        database via <code>GET /admin/source-status</code>.
+        <strong>Not</strong> a provider refresh — no provider call, no fetch,
+        no import, no edits, no deletes.
+      </p>
+      <div class="source-preview-row">
+        <button id="source-status-btn" type="button">Load status</button>
+      </div>
+      <div id="source-status-status"></div>
+      <div id="source-status-results"></div>
+    </section>
+
     <div id="auth-banner" role="alert">
       Admin token required or invalid. Paste a valid token above and click Save.
     </div>
@@ -571,8 +586,9 @@
       <code>POST /admin/import/preview/{coupons,results}</code>,
       <code>POST /admin/import/apply/{coupons,results}</code>,
       <code>POST /admin/source-preview/awin</code>,
-      <code>POST /admin/source-import/awin</code>, and
-      <code>GET /admin/source-summary</code>.
+      <code>POST /admin/source-import/awin</code>,
+      <code>GET /admin/source-summary</code>, and
+      <code>GET /admin/source-status</code>.
     </footer>
 
     <script>
@@ -1819,6 +1835,104 @@
               "Lookup failed: " + err.message,
               "error",
             );
+          });
+      });
+
+      var sourceStatusBtn = document.getElementById("source-status-btn");
+      var sourceStatusStatusEl = document.getElementById(
+        "source-status-status",
+      );
+      var sourceStatusResultsEl = document.getElementById(
+        "source-status-results",
+      );
+
+      var SOURCE_STATUS_COLUMNS = [
+        "sourceId",
+        "sourceName",
+        "sourceType",
+        "enabled",
+        "providerFeatureEnabled",
+        "providerConfigured",
+        "lastFetchAt",
+        "lastFetchOutcome",
+        "lastSafeError",
+        "cacheEntries",
+        "freshCacheEntries",
+        "staleCacheEntries",
+        "cachedCandidateCount",
+        "newestCacheAt",
+        "nextAllowedFetchAt",
+      ];
+
+      function setSourceStatusStatus(message, kind) {
+        sourceStatusStatusEl.textContent = message || "";
+        sourceStatusStatusEl.className = kind ? kind : "";
+      }
+
+      function clearSourceStatusResults() {
+        sourceStatusResultsEl.innerHTML = "";
+      }
+
+      function formatSourceStatusCell(value) {
+        if (value === null || value === undefined) return "—";
+        if (typeof value === "boolean") return value ? "yes" : "no";
+        return String(value);
+      }
+
+      function renderSourceStatus(body) {
+        clearSourceStatusResults();
+        var rows = body && Array.isArray(body.sources) ? body.sources : [];
+        if (rows.length === 0) {
+          var empty = document.createElement("p");
+          empty.className = "domain-empty";
+          empty.textContent = "No sources registered.";
+          sourceStatusResultsEl.appendChild(empty);
+          return;
+        }
+        var table = document.createElement("table");
+        var thead = document.createElement("thead");
+        var headRow = document.createElement("tr");
+        SOURCE_STATUS_COLUMNS.forEach(function (col) {
+          var th = document.createElement("th");
+          th.textContent = col;
+          headRow.appendChild(th);
+        });
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+        var tbody = document.createElement("tbody");
+        rows.forEach(function (row) {
+          var tr = document.createElement("tr");
+          SOURCE_STATUS_COLUMNS.forEach(function (col) {
+            var td = document.createElement("td");
+            td.textContent = formatSourceStatusCell(row && row[col]);
+            tr.appendChild(td);
+          });
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        sourceStatusResultsEl.appendChild(table);
+      }
+
+      sourceStatusBtn.addEventListener("click", function () {
+        setSourceStatusStatus("Loading…");
+        clearSourceStatusResults();
+        fetch("/admin/source-status", { headers: authHeaders() })
+          .then(function (r) {
+            if (r.status === 401) {
+              setAuthBannerVisible(true);
+              setSourceStatusStatus("Load failed: unauthorized.", "error");
+              return null;
+            }
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            return r.json();
+          })
+          .then(function (body) {
+            if (body === null) return;
+            renderSourceStatus(body);
+            setSourceStatusStatus("Loaded.", "ok");
+          })
+          .catch(function () {
+            setSourceStatusStatus("Load failed.", "error");
           });
       });
 

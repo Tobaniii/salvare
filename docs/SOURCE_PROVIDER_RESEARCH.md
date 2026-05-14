@@ -1,5 +1,36 @@
 # Salvare Source Provider Research — v0.31.0
 
+> **v0.40.0 status (2026-05-14):** Read-only admin **source freshness /
+> status dashboard** added. New SELECT-only helper
+> [`server/db-source-status.ts`](../server/db-source-status.ts) and protected
+> route [`server/admin-source-status-routes.ts`](../server/admin-source-status-routes.ts)
+> expose `GET /admin/source-status`, which aggregates `coupon_sources`,
+> `source_cache`, and `source_fetch_log` into one row per source with
+> allowlisted fields only: `sourceId`, `sourceName`, `sourceType`, `enabled`,
+> `providerFeatureEnabled`, `providerConfigured`, `lastFetchAt`,
+> `lastFetchOutcome`, `lastSafeError`, `cacheEntries`, `freshCacheEntries`,
+> `staleCacheEntries`, `cachedCandidateCount`, `newestCacheAt`, and
+> `nextAllowedFetchAt`. The handler executes zero writes (helper is SELECT-only,
+> no provider fetcher, no importer, no refresh runner). Provider feature-flag
+> and configured booleans are derived from `readAwinConfig(process.env)` at
+> request time for the `awin` source; env values, the API key,
+> `Authorization`, cookies, `localStorage`, DB paths, raw payloads, raw HTML,
+> stack traces, `body_sha256`, `metadata_json`, candidate arrays, source URLs,
+> and affiliate / tracking fields are never returned. `lastFetchOutcome` and
+> `lastSafeError` are re-validated against the existing fetch-log outcome
+> allowlist and short-error-code pattern. `cachedCandidateCount` reads only
+> `JSON.parse(candidates_json).length` per cache row (32 KB write cap from
+> v0.33) and corrupt or oversized rows contribute zero without throwing. A
+> small **Source status** admin UI section calls the route via the existing
+> `authHeaders()` helper and renders one row per source through `textContent`
+> with a **Load status** button (intentionally not "Refresh source") so it is
+> visually distinct from the v0.34/v0.36 preview/import sections. **Still
+> out of scope:** scheduler / automatic refresh, second provider, scraping,
+> extension behavior changes, `/coupons` / export / import JSON shape
+> changes, ranking / winner-selection changes, `coupon_results` writes, DB
+> schema changes, provider fetch calls, and source refresh/import/edit/delete
+> controls in this section.
+>
 > **v0.39.0 status (2026-05-14):** Manual source-refresh CLI added for the
 > mocked, feature-flagged Awin provider. New entrypoint
 > [`server/source-refresh-cli.ts`](../server/source-refresh-cli.ts) (pure

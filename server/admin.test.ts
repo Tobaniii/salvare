@@ -124,4 +124,25 @@ describe("getAdminHtml", () => {
     expect(html).not.toContain("source-summary-import");
     expect(html).not.toContain("source-summary-apply");
   });
+
+  it("includes the read-only source status section with Load status button and result containers", () => {
+    const html = getAdminHtml();
+    expect(html).toContain("Source status");
+    expect(html).toContain('id="source-status-btn"');
+    expect(html).toContain('id="source-status-status"');
+    expect(html).toContain('id="source-status-results"');
+    expect(html).toContain("Load status");
+    expect(html).toContain("/admin/source-status");
+    expect(html).toContain("Read-only");
+  });
+
+  it("does not include any source-status refresh / import / write controls", () => {
+    const html = getAdminHtml();
+    expect(html).not.toContain("source-status-refresh");
+    expect(html).not.toContain("source-status-import");
+    expect(html).not.toContain("source-status-apply");
+    expect(html).not.toContain("source-status-delete");
+    expect(html).not.toContain("source-status-edit");
+    expect(html).not.toContain("Refresh source");
+  });
 });
