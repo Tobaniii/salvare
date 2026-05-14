@@ -1,7 +1,7 @@
 {
   "name": "salvare",
   "private": true,
-  "version": "0.38.0",
+  "version": "0.39.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -26,6 +26,8 @@
     "db:import": "npm run build:db-import && node server/db-import-cli.js",
     "build:db-verify": "esbuild server/db-verify-cli.ts --bundle --platform=node --target=node20 --format=esm --outfile=server/db-verify-cli.js --external:better-sqlite3",
     "db:verify": "npm run build:db-verify && node server/db-verify-cli.js",
+    "build:source-refresh": "esbuild server/source-refresh-cli.ts --bundle --platform=node --target=node20 --format=esm --outfile=server/source-refresh-cli.js --external:better-sqlite3",
+    "source:refresh": "npm run build:source-refresh && node server/source-refresh-cli.js",
     "build:profiles-verify": "esbuild server/profiles-verify-cli.ts --bundle --platform=node --target=node20 --format=esm --outfile=server/profiles-verify-cli.js --packages=external",
     "profiles:verify": "npm run build:profiles-verify && node server/profiles-verify-cli.js",
     "build:extension-harness": "esbuild smoke/extension-server-harness.ts --bundle --platform=node --target=node20 --format=esm --outfile=smoke/extension-server-harness.js --external:better-sqlite3",

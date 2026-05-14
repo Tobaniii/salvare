@@ -25,6 +25,7 @@ server/db-reset-cli.js
 server/db-import-cli.js
 server/db-verify-cli.js
 server/profiles-verify-cli.js
+server/source-refresh-cli.js
 server/server.js
 
 # Local data maintenance artifacts — never commit

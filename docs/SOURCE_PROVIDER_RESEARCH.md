@@ -1,5 +1,24 @@
 # Salvare Source Provider Research — v0.31.0
 
+> **v0.39.0 status (2026-05-14):** Manual source-refresh CLI added for the
+> mocked, feature-flagged Awin provider. New entrypoint
+> [`server/source-refresh-cli.ts`](../server/source-refresh-cli.ts) (pure
+> runner in [`server/source-refresh.ts`](../server/source-refresh.ts)) lets a
+> developer preview candidates from the shell and (with `--import` plus an
+> exact `--confirm IMPORT`) trigger the same additive importer used by the
+> v0.36 admin route. Preview is the default and writes no `coupon_codes` or
+> `coupon_results`. The CLI reuses `readAwinConfig`, `createAwinAdapter`, and
+> `importProviderCandidates`; unknown provider, invalid domain, missing/wrong
+> confirm, and disabled/missing config all fail closed with non-zero exit
+> and an allowlisted reason. Output is the same admin-route allowlist —
+> never the API key, `Authorization`, env vars, the DB path, raw payloads,
+> raw HTML, affiliate/tracking fields, or stack traces. The fetcher is
+> injectable; tests run entirely against committed fixtures with zero live
+> HTTP. **Still out of scope:** scheduler / automatic refresh, second
+> provider, scraping, extension behavior changes, `/coupons` / export /
+> import JSON shape changes, ranking / winner-selection changes,
+> `coupon_results` writes, and DB schema changes.
+>
 > **v0.32.0 status (2026-05-11):** A mocked, feature-flagged Awin Offers API
 > adapter spike landed in [`server/source-provider-awin.ts`](../server/source-provider-awin.ts)
 > and [`server/source-provider-config.ts`](../server/source-provider-config.ts).

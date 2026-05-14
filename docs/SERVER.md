@@ -500,6 +500,24 @@ A new **Stored source claims (provenance)** section in [`server/admin.html`](../
 
 Below the existing **Source preview** results, the admin shell renders an `IMPORT` confirmation input and an **Import previewed candidates** button. The button stays disabled until (a) the most recent preview returned at least one candidate and (b) the confirmation input value is exactly `IMPORT`. Clicking the button issues exactly one `POST /admin/source-import/awin` with the existing `authHeaders()` and body `{ "domain": <previewed domain>, "confirm": "IMPORT" }`. The result panel renders only the allowlisted summary fields (`provider`, `domain`, `candidatesAccepted`, `codesImported`, `provenanceRecorded`, `rejected`); forbidden fields cannot reach the DOM for the same reason as the preview section. There is **no Apply-to-checkout button, no automatic test/apply, and no extension behavior change** — imported candidates are saved as candidate codes only and enter the normal `/coupons` flow on the next extension request.
 
+### Manual source refresh CLI (v0.39.0)
+
+A local-only shell entrypoint mirrors the v0.34/v0.36 admin preview + import flow for the mocked, feature-flagged Awin provider, so a developer can preview candidates and (with explicit confirmation) trigger an additive import without round-tripping through the admin UI.
+
+```
+npm run source:refresh -- --provider awin --domain example.com
+npm run source:refresh -- --provider awin --domain example.com --import --confirm IMPORT
+```
+
+- **Preview is the default.** Running without `--import` calls the same Awin adapter the admin preview route uses (cache-preferred via v0.33) and prints an allowlisted JSON summary to stdout: `{ ok, mode:"preview", provider, domain, cacheHit, fetched, candidateCount, candidates[], errors }`. No `coupon_codes` and no `coupon_results` rows are written; the adapter may still update `source_fetch_log` / `source_cache` for the requested key (same as the admin preview route).
+- **Import requires both flags.** `--import` without an exact `--confirm IMPORT` exits non-zero with `reason: "confirmation_required"` and writes nothing. The successful import path re-uses the v0.36 additive importer `importProviderCandidates`, so existing `coupon_codes` rows are preserved, `coupon_code_sources` gains `source_id="awin"` provenance idempotently, and re-running the import is a no-op (`codesImported`/`provenanceRecorded` drop to 0). `coupon_results` is never read or written.
+- **Feature-flag/env-gated.** The CLI delegates to `readAwinConfig` — provider stays disabled by default and a missing or blank `SALVARE_AWIN_API_KEY`, an unset/unsupported `SALVARE_SOURCE_PROVIDER`, or `SALVARE_SOURCE_PROVIDER_ENABLED != "true"` all fail closed with non-zero exit and an allowlisted `reason` (`flag_off`, `provider_unset`, `provider_unsupported`, `missing_api_key`).
+- **Fail-closed validation.** Unknown provider, invalid domain (via `validateDomain`), unknown flag, missing required flag, and the smoke-DB guard all exit `1` with a short reason. No stack traces are printed by default.
+- **Redaction.** Output is the same allowlist as the admin routes: API keys, env values, `Authorization`/`Bearer`, cookies, DB paths, raw provider payloads, raw HTML, affiliate/tracking fields, and full secret-bearing URLs are never written to stdout or stderr.
+- **No live calls in tests.** The runner takes an injectable fetcher; unit tests exercise it entirely against committed JSON fixtures with an in-memory DB.
+
+This CLI does **not** introduce a scheduler, automatic refresh, second provider, scraping, extension behavior change, `/coupons` shape change, export/import JSON shape change, ranking change, or DB schema change.
+
 ### Using the admin UI in token mode
 
 `GET /admin` is unprotected so the static admin shell can load in a browser even when token auth is on. The shell renders an "Admin token required or invalid" banner and an **Admin token** bar at the top of the page until a valid token is provided.
