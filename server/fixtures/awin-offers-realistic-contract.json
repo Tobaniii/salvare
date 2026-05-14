@@ -1,0 +1,72 @@
+{
+  "_note": "CONTRACT-STYLE fixture — not a live-captured Awin response. Shape reflects researched Awin Offers API documentation. Live response validation is still pending (no publisher account). All IDs, URLs, and codes are obviously fake placeholders.",
+  "offers": [
+    {
+      "id": 1001,
+      "merchantId": 9999,
+      "merchantName": "Shop Example Ltd",
+      "merchantUrl": "https://shop.example/",
+      "regionCode": "US",
+      "currency": "USD",
+      "currencySymbol": "$",
+      "promotionType": "voucher",
+      "code": "SAVE15",
+      "title": "15% off sitewide",
+      "description": "Get 15% off your entire order with this code",
+      "endDate": "2026-12-31",
+      "startDate": "2026-01-01",
+      "exclusive": false,
+      "verified": true,
+      "termsAndConditions": "Minimum spend $30. Excludes sale items.",
+      "clickThroughUrl": "https://tracking.example/click?mid=9999&ref=SANITISED",
+      "deepLink": "https://tracking.example/deep?mid=9999&p=https%3A%2F%2Fshop.example%2F",
+      "commissionRate": 8.0,
+      "payout": 1.20,
+      "publisherId": "pub-000",
+      "advertiserId": "adv-000"
+    },
+    {
+      "id": 1002,
+      "merchantId": 9999,
+      "merchantName": "Shop Example Ltd",
+      "domain": "shop.example",
+      "regionCode": "US",
+      "currency": "USD",
+      "promotionType": "vouchercode",
+      "voucherCode": "FREESHIP30",
+      "description": "Free shipping on orders over $30",
+      "validTo": "2026-09-15T23:59:00Z",
+      "clickThroughUrl": "https://tracking.example/click?mid=9999&ref=SANITISED2"
+    },
+    {
+      "id": 1003,
+      "merchantId": 9999,
+      "merchantName": "Shop Example Ltd",
+      "merchantUrl": "https://shop.example/",
+      "promotionType": "cashback",
+      "title": "5% cashback on all orders",
+      "endDate": "2026-12-31",
+      "commissionRate": 5.0
+    },
+    {
+      "id": 1004,
+      "merchantId": 9999,
+      "merchantName": "Shop Example Ltd",
+      "merchantUrl": "https://shop.example/",
+      "type": "code",
+      "code": "SUMMER20",
+      "description": "20% off summer styles",
+      "endDate": "2026-08-31",
+      "trackingUrl": "https://tracking.example/awclick?id=9999"
+    },
+    {
+      "id": 1005,
+      "merchantId": 9999,
+      "merchantName": "Shop Example Ltd",
+      "merchantUrl": "https://shop.example/",
+      "promotionType": "product",
+      "title": "Featured product promotion — no code",
+      "code": "PROD2026"
+    }
+  ]
+}

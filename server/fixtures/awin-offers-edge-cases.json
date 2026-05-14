@@ -1,0 +1,52 @@
+{
+  "_note": "CONTRACT-STYLE edge-case fixture for Awin parser hardening (v0.41.0). Tests: duplicate same-domain codes, same code on different domains (not a duplicate), null code, missing optional fields, type-alias, hostname domain, unknown promotion type.",
+  "offers": [
+    {
+      "merchantUrl": "https://shop.example/",
+      "code": "DUPE",
+      "promotionType": "voucher",
+      "title": "First occurrence — kept"
+    },
+    {
+      "merchantUrl": "https://shop.example/",
+      "code": "DUPE",
+      "promotionType": "voucher",
+      "title": "Second occurrence same domain — deduped"
+    },
+    {
+      "merchantUrl": "https://other.example/",
+      "code": "DUPE",
+      "promotionType": "voucher",
+      "title": "Same code, different domain — NOT a duplicate"
+    },
+    {
+      "merchantUrl": "https://shop.example/",
+      "code": null,
+      "promotionType": "voucher",
+      "title": "Null code — per-row error, does not block remaining rows"
+    },
+    {
+      "merchantUrl": "https://shop.example/",
+      "code": "NOLABEL",
+      "promotionType": "voucher"
+    },
+    {
+      "merchantUrl": "https://shop.example/",
+      "code": "NOEXPIRY",
+      "promotionType": "voucher",
+      "title": "No expiry date present"
+    },
+    {
+      "domain": "widget.example",
+      "code": "TYPEONLY",
+      "type": "promotion_code",
+      "title": "Uses type alias; domain is a bare hostname"
+    },
+    {
+      "merchantUrl": "https://shop.example/",
+      "code": "BADTYPE",
+      "promotionType": "deal",
+      "title": "Unknown promotion type — silently dropped, no error"
+    }
+  ]
+}

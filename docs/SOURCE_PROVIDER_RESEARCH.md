@@ -1,5 +1,23 @@
 # Salvare Source Provider Research — v0.31.0
 
+> **v0.41.0 status (2026-05-14):** Awin parser **fixture hardening** added.
+> Two new contract-style fixtures — `server/fixtures/awin-offers-realistic-contract.json`
+> and `server/fixtures/awin-offers-edge-cases.json` — cover the full realistic
+> Awin Offers API field set (with all affiliate/payout/tracking fields present
+> for stripping validation), plus edge cases: duplicate same-domain codes,
+> same code on different domains, null code, missing optional fields, `type` /
+> `voucherCode` / `validTo` / `description` field aliases, bare-hostname
+> domain, and unknown promotion types. New parser tests confirm voucher/code
+> offers parse correctly, non-code offers are silently dropped, duplicates
+> dedupe deterministically, optional-field absence does not break valid rows,
+> malformed rows produce safe per-row errors, and affiliate/tracking/payout
+> fields never appear in candidates or errors. **Live Awin response validation
+> is still pending** — no publisher account has been used; both fixtures are
+> explicitly marked contract-style and must be reconciled against a real
+> response once account access is available. No behavior changes in this
+> milestone: no new endpoints, no admin UI changes, no import/refresh/cache
+> changes, no extension or ranking changes.
+
 > **v0.40.0 status (2026-05-14):** Read-only admin **source freshness /
 > status dashboard** added. New SELECT-only helper
 > [`server/db-source-status.ts`](../server/db-source-status.ts) and protected

@@ -831,3 +831,175 @@ describe("createAwinAdapter — cache-read short-circuit (v0.33.0)", () => {
     expect(provCount).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// v0.41.0 — Realistic contract fixture and edge-case parser hardening
+// ---------------------------------------------------------------------------
+// Fixtures are CONTRACT-STYLE (not live-captured). Live Awin response
+// validation remains pending until a publisher account is available.
+// ---------------------------------------------------------------------------
+
+describe("createAwinAdapter — realistic contract fixture (v0.41.0)", () => {
+  function makeAdapter(db?: ReturnType<typeof makeDb>) {
+    const { fetcher } = fetcherFromFixture(
+      loadFixture("awin-offers-realistic-contract.json"),
+    );
+    return createAwinAdapter({
+      config: enabledConfig(),
+      fetcher,
+      db,
+      clock: fixedClock(),
+    });
+  }
+
+  it("extracts 3 voucher candidates and drops cashback and product offers", async () => {
+    const result = await makeAdapter().fetchAndParse({ domain: "shop.example" });
+    expect(result.ok).toBe(true);
+    expect(result.outcome).toBe("ok");
+    // cashback (index 2) and product (index 4) silently dropped — no per-row errors for them.
+    expect(result.candidates).toHaveLength(3);
+    const codes = result.candidates.map((c) => c.code);
+    expect(codes).toContain("SAVE15");
+    expect(codes).toContain("FREESHIP30");
+    expect(codes).toContain("SUMMER20");
+  });
+
+  it("affiliate, payout, and tracking fields are stripped from every candidate", async () => {
+    const result = await makeAdapter().fetchAndParse({ domain: "shop.example" });
+    const serialized = JSON.stringify(result.candidates);
+    expect(serialized).not.toContain("clickThroughUrl");
+    expect(serialized).not.toContain("trackingUrl");
+    expect(serialized).not.toContain("deepLink");
+    expect(serialized).not.toContain("commissionRate");
+    expect(serialized).not.toContain("payout");
+    expect(serialized).not.toContain("publisherId");
+    expect(serialized).not.toContain("advertiserId");
+    // Extra realistic fields not in the candidate allowlist must not bleed through.
+    expect(serialized).not.toContain("merchantId");
+    expect(serialized).not.toContain("merchantName");
+    expect(serialized).not.toContain("termsAndConditions");
+  });
+
+  it("voucherCode alias resolves to code field", async () => {
+    const result = await makeAdapter().fetchAndParse({ domain: "shop.example" });
+    const freeship = result.candidates.find((c) => c.code === "FREESHIP30");
+    expect(freeship).toBeDefined();
+    expect(freeship?.sourceId).toBe("awin");
+  });
+
+  it("validTo alias resolves to expiresAt and description alias resolves to label", async () => {
+    const result = await makeAdapter().fetchAndParse({ domain: "shop.example" });
+    const freeship = result.candidates.find((c) => c.code === "FREESHIP30");
+    expect(freeship?.expiresAt).toBe("2026-09-15T23:59:00Z");
+    expect(freeship?.label).toBe("Free shipping on orders over $30");
+  });
+
+  it("bare-hostname domain field is accepted directly", async () => {
+    const result = await makeAdapter().fetchAndParse({ domain: "shop.example" });
+    const freeship = result.candidates.find((c) => c.code === "FREESHIP30");
+    expect(freeship?.domain).toBe("shop.example");
+  });
+
+  it("type field alias works when promotionType is absent", async () => {
+    const result = await makeAdapter().fetchAndParse({ domain: "shop.example" });
+    const summer = result.candidates.find((c) => c.code === "SUMMER20");
+    expect(summer).toBeDefined();
+    expect(summer?.domain).toBe("shop.example");
+  });
+
+  it("output shape is stable — each candidate has required fields only", async () => {
+    const result = await makeAdapter().fetchAndParse({ domain: "shop.example" });
+    for (const c of result.candidates) {
+      expect(typeof c.domain).toBe("string");
+      expect(typeof c.code).toBe("string");
+      expect(typeof c.sourceId).toBe("string");
+      expect(typeof c.discoveredAt).toBe("string");
+    }
+  });
+
+  it("realistic contract fixture passes no-secrets-leak check", async () => {
+    const result = await makeAdapter().fetchAndParse({ domain: "shop.example" });
+    expectNoSecretsLeak(result, "secret-key-shhh");
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("payout");
+    expect(serialized).not.toContain("advertiserId");
+    expect(serialized).not.toContain("pub-000");
+    expect(serialized).not.toContain("adv-000");
+  });
+});
+
+describe("createAwinAdapter — edge cases fixture (v0.41.0)", () => {
+  function makeAdapter() {
+    const { fetcher } = fetcherFromFixture(
+      loadFixture("awin-offers-edge-cases.json"),
+    );
+    return createAwinAdapter({
+      config: enabledConfig(),
+      fetcher,
+      clock: fixedClock(),
+    });
+  }
+
+  it("same-domain duplicate codes: first kept, second produces per-row error", async () => {
+    const result = await makeAdapter().fetchAndParse({ domain: "shop.example" });
+    const shopDupes = result.candidates.filter(
+      (c) => c.code === "DUPE" && c.domain === "shop.example",
+    );
+    expect(shopDupes).toHaveLength(1);
+    const dupeErrors = result.errors.filter((e) => typeof e.reason === "string");
+    expect(dupeErrors.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("same code on different domains is not treated as a duplicate", async () => {
+    const result = await makeAdapter().fetchAndParse({ domain: "shop.example" });
+    const shopDupe = result.candidates.find(
+      (c) => c.code === "DUPE" && c.domain === "shop.example",
+    );
+    const otherDupe = result.candidates.find(
+      (c) => c.code === "DUPE" && c.domain === "other.example",
+    );
+    expect(shopDupe).toBeDefined();
+    expect(otherDupe).toBeDefined();
+  });
+
+  it("null code produces per-row error and does not block remaining valid rows", async () => {
+    const result = await makeAdapter().fetchAndParse({ domain: "shop.example" });
+    const nolabel = result.candidates.find((c) => c.code === "NOLABEL");
+    const noexpiry = result.candidates.find((c) => c.code === "NOEXPIRY");
+    expect(nolabel).toBeDefined();
+    expect(noexpiry).toBeDefined();
+    expect(result.errors.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("missing label produces valid candidate without label field", async () => {
+    const result = await makeAdapter().fetchAndParse({ domain: "shop.example" });
+    const nolabel = result.candidates.find((c) => c.code === "NOLABEL");
+    expect(nolabel).toBeDefined();
+    expect(nolabel?.label).toBeUndefined();
+  });
+
+  it("missing expiry produces valid candidate without expiresAt field", async () => {
+    const result = await makeAdapter().fetchAndParse({ domain: "shop.example" });
+    const noexpiry = result.candidates.find((c) => c.code === "NOEXPIRY");
+    expect(noexpiry).toBeDefined();
+    expect(noexpiry?.expiresAt).toBeUndefined();
+  });
+
+  it("type alias and bare-hostname domain both work", async () => {
+    const result = await makeAdapter().fetchAndParse({ domain: "shop.example" });
+    const typeonly = result.candidates.find((c) => c.code === "TYPEONLY");
+    expect(typeonly).toBeDefined();
+    expect(typeonly?.domain).toBe("widget.example");
+  });
+
+  it("unknown promotionType is silently dropped without adding a per-row error", async () => {
+    const result = await makeAdapter().fetchAndParse({ domain: "shop.example" });
+    const bad = result.candidates.find((c) => c.code === "BADTYPE");
+    expect(bad).toBeUndefined();
+    // Errors are only for malformed/invalid rows, not for silently filtered types.
+    const badTypeErrors = result.errors.filter(
+      (e) => e.index === 7,
+    );
+    expect(badTypeErrors).toHaveLength(0);
+  });
+});

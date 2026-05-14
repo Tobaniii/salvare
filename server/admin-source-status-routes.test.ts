@@ -74,7 +74,7 @@ async function get(
 
 const NOW = "2026-05-14T12:00:00.000Z";
 const PAST = "2026-05-14T10:00:00.000Z";
-const FUTURE = "2026-05-14T13:00:00.000Z";
+const FUTURE = "2030-01-01T00:00:00.000Z";
 
 describe("GET /admin/source-status — auth", () => {
   const TOKEN = "status-token-zzz";
