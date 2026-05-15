@@ -1,0 +1,52 @@
+{
+  "_note": "CONTRACT-STYLE edge-case fixture for impact.com parser (v0.42.0). Tests: duplicate same-domain codes, same code on different domains (not a duplicate), null code, missing optional fields, type-alias, bare-hostname domain, unknown promotion type. All values are obviously fake.",
+  "Promotions": [
+    {
+      "AdvertiserUrl": "https://shop.example/",
+      "PromoCode": "DUPE",
+      "PromotionType": "PROMO_CODE",
+      "Name": "First occurrence — kept"
+    },
+    {
+      "AdvertiserUrl": "https://shop.example/",
+      "PromoCode": "DUPE",
+      "PromotionType": "PROMO_CODE",
+      "Name": "Second occurrence same domain — deduped"
+    },
+    {
+      "AdvertiserUrl": "https://other.example/",
+      "PromoCode": "DUPE",
+      "PromotionType": "PROMO_CODE",
+      "Name": "Same code, different domain — NOT a duplicate"
+    },
+    {
+      "AdvertiserUrl": "https://shop.example/",
+      "PromoCode": null,
+      "PromotionType": "PROMO_CODE",
+      "Name": "Null code — per-row error, does not block remaining rows"
+    },
+    {
+      "AdvertiserUrl": "https://shop.example/",
+      "PromoCode": "NOLABEL",
+      "PromotionType": "PROMO_CODE"
+    },
+    {
+      "AdvertiserUrl": "https://shop.example/",
+      "PromoCode": "NOEXPIRY",
+      "PromotionType": "PROMO_CODE",
+      "Name": "No expiry date present"
+    },
+    {
+      "Domain": "widget.example",
+      "PromoCode": "TYPEONLY",
+      "Type": "coupon",
+      "Name": "Uses type alias; domain is a bare hostname"
+    },
+    {
+      "AdvertiserUrl": "https://shop.example/",
+      "PromoCode": "BADTYPE",
+      "PromotionType": "BRAND_AWARENESS",
+      "Name": "Unknown promotion type — silently dropped, no error"
+    }
+  ]
+}

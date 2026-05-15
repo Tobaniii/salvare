@@ -1,0 +1,41 @@
+{
+  "_note": "CONTRACT-STYLE mocked fixture for impact.com Promotions API (v0.42.0). Values are obviously fake. Tracking/payout/partner-id/account-sid fields are present to validate stripping. Not a live response.",
+  "Promotions": [
+    {
+      "AdvertiserUrl": "https://shop.example/",
+      "PromoCode": "IMPACT10",
+      "PromotionType": "PROMO_CODE",
+      "Name": "10% off your first order",
+      "EndDate": "2026-12-31",
+      "TrackingUrl": "https://fake-tracking.example/redir?id=should-be-stripped",
+      "DeepLink": "https://fake-tracking.example/dl?p=should-be-stripped",
+      "PartnerId": "FAKE-PARTNER-NOT-REAL",
+      "AdvertiserId": "FAKE-ADVERTISER-NOT-REAL",
+      "AccountSid": "FAKE-ACCOUNT-SID-NOT-REAL",
+      "Payout": 5.5,
+      "CommissionRate": 5.5,
+      "EarningsPerClick": 0.42
+    },
+    {
+      "MerchantUrl": "https://shop.example/",
+      "code": "FREESHIP",
+      "type": "coupon_code",
+      "description": "Free shipping over $50",
+      "validTo": "2026-09-30T23:59:59Z",
+      "ClickUrl": "https://fake-tracking.example/click?should-be-stripped"
+    },
+    {
+      "AdvertiserUrl": "https://shop.example/",
+      "PromotionType": "CASHBACK",
+      "Name": "5% cashback (no code) — dropped silently",
+      "EndDate": "2026-12-31"
+    },
+    {
+      "AdvertiserUrl": "https://other.example/",
+      "CouponCode": "OTHER15",
+      "OfferType": "voucher",
+      "Title": "15% off everything",
+      "EndsAt": "2026-08-15"
+    }
+  ]
+}

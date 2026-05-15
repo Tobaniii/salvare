@@ -1,5 +1,47 @@
 # Salvare Source Provider Research — v0.31.0
 
+> **v0.42.0 status (2026-05-15):** Second mocked **provider adapter spike**
+> added for **impact.com** Promotions API. New module
+> [`server/source-provider-impact.ts`](../server/source-provider-impact.ts)
+> mirrors the v0.32 Awin module layout: an injected fetcher (no live HTTP
+> in tests or CI), env gating via independent `readImpactConfig` in
+> [`server/source-provider-config.ts`](../server/source-provider-config.ts)
+> (`SALVARE_IMPACT_ENABLED` literal `"true"` plus a non-blank
+> `SALVARE_IMPACT_API_KEY`; optional `SALVARE_IMPACT_ACCOUNT_SID`; missing or
+> blank values fail closed), promo-code-only `PromotionType` filter,
+> runtime-only `coupon_sources` registration (not seeded into bootstrap),
+> per-attempt `source_fetch_log` write, and on-success `source_cache` write
+> with `body_sha256` and allowlisted `{ offer_count, error_count }` metadata
+> only. Affiliate / tracking / deep-link / partner-id / advertiser-id /
+> account-sid / payout / commission-rate fields (including `EarningsPerClick`,
+> `ClickUrl`, `AuthToken`, and case variants) are stripped before any
+> candidate is returned, and dedicated redaction assertions confirm the API
+> key, the account SID, `Authorization`, `Bearer`, raw response bodies, and
+> denied field names never appear in results, errors, fetch-log rows, cache
+> metadata, or `candidates_json`. Fixtures
+> ([`server/fixtures/impact-offers-ok.json`](../server/fixtures/impact-offers-ok.json),
+> [`server/fixtures/impact-offers-edge-cases.json`](../server/fixtures/impact-offers-edge-cases.json),
+> [`server/fixtures/impact-offers-malformed.json`](../server/fixtures/impact-offers-malformed.json))
+> are explicitly **contract-style**; values are obviously fake (no real
+> account IDs, no real partner IDs, no real tracking URLs, no real API
+> keys). The real impact.com API authenticates via HTTP Basic with
+> `<accountSid>:<authToken>`; v0.42 uses a `Bearer` header to keep
+> redaction assertions parallel to the existing Awin surface, and **live
+> activation must reconcile the auth scheme, credential format, pagination,
+> response envelope (`Promotions` casing), and field shape against
+> developer.impact.com before the feature flag is set to `true` in any
+> environment other than local development with mocked HTTP**. Cache-read
+> short-circuit is **deferred** to a later generic provider-registry
+> milestone to avoid duplicating Awin-specific TTL logic. **Still out of
+> scope:** admin preview/import wiring for impact, source-refresh CLI
+> multi-provider support, generic provider registry, admin UI provider
+> selector, automatic import/apply, scheduler / automatic refresh, scraping,
+> extension behavior changes, `/coupons` / export / import JSON shape
+> changes, ranking / winner-selection changes, `coupon_results` writes, DB
+> schema changes, and any live HTTP in tests. The §4 terms / safety
+> checklist below must still be completed (per-provider) before live
+> activation.
+>
 > **v0.41.0 status (2026-05-14):** Awin parser **fixture hardening** added.
 > Two new contract-style fixtures — `server/fixtures/awin-offers-realistic-contract.json`
 > and `server/fixtures/awin-offers-edge-cases.json` — cover the full realistic
