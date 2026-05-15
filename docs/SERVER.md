@@ -331,6 +331,10 @@ The admin shell includes an **Import data** section with two independent blocks:
 
 Coupons and result-history imports are independent: previewing or applying one block has no effect on the other. There is **no auto-apply after preview**, **no drag-and-drop**, **no admin reset UI**, and the committed bootstrap JSON files (`server/coupons.seed.json`, `server/coupon-results.json`) are never mutated by any browser action.
 
+### Provider registry (internal, v0.43.0)
+
+`server/source-provider-registry.ts` is an **internal** registry of trusted source providers. It centralises provider metadata (id, source id, display name, source type, capability flags), safe status accessors (`featureEnabled` / `configured` booleans only — never env values, API keys, or credentials), and typed preview factories so future milestones can flip capability gates without rewriting adapter dispatch. v0.43 registers **awin** (full capabilities; user-exposed via the existing admin preview/import and source-refresh CLI paths) and **impact** (`capabilities.importSupported: false`, `userExposed: false`; registry-internal only). The registry is not exposed via any HTTP route, CLI flag, or admin UI in v0.43 — Awin endpoints, CLI behavior, and the `GET /admin/source-status` response shape are byte-compatible with v0.42. A future milestone will add a generic provider-aware admin UI/CLI on top of these gates.
+
 ### Admin source preview endpoint
 
 `POST /admin/source-preview/awin` exposes the mocked, feature-flagged Awin provider adapter (v0.32/v0.33) through a preview-only HTTP boundary. The route is protected when `SALVARE_ADMIN_TOKEN` is configured and open otherwise, matching the rest of the `/admin/*` surface. It is **preview-only**: it never writes to `coupon_codes` or `coupon_results`, never imports or applies anything, never calls into the ranking path, and exposes no admin UI control. The only persistence the route can produce is the adapter's existing internal bookkeeping — `source_fetch_log`, `source_cache`, and one-time runtime `coupon_sources` registration — and only when the feature flag and API key are both present.

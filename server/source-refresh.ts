@@ -33,9 +33,26 @@ import {
   type AwinAdapterResult,
   type AwinFetcher,
 } from "./source-provider-awin";
+import {
+  createProviderRegistry,
+  type ProviderRegistry,
+} from "./source-provider-registry";
 
-const SUPPORTED_PROVIDERS = ["awin"] as const;
-type SupportedProvider = (typeof SUPPORTED_PROVIDERS)[number];
+// v0.43.0 — provider dispatch consults the internal registry. Only providers
+// whose descriptor sets `capabilities.importSupported: true` are accepted on
+// the source-refresh CLI; impact (v0.42) is registry-internal and remains
+// rejected here as `unknown_provider`. A later milestone will widen the
+// allowlist once a generic provider-registry import path lands.
+function buildSupportedProviders(
+  registry: ProviderRegistry,
+): readonly string[] {
+  return registry
+    .list()
+    .filter((d) => d.capabilities.importSupported)
+    .map((d) => d.providerId);
+}
+
+type SupportedProvider = "awin";
 
 const CONFIRMATION_PHRASE = "IMPORT";
 const AWIN_SOURCE_ID = "awin";
@@ -159,10 +176,19 @@ export interface SourceRefreshDeps {
     db: Db,
     clock: AwinAdapterClock | undefined,
   ) => AwinAdapter;
+  /**
+   * Optional registry override (tests). Defaults to a fresh
+   * `createProviderRegistry()` per call so the runner remains environment-
+   * free at module scope.
+   */
+  registry?: ProviderRegistry;
 }
 
-function isSupportedProvider(value: string): value is SupportedProvider {
-  return (SUPPORTED_PROVIDERS as readonly string[]).includes(value);
+function isSupportedProvider(
+  value: string,
+  registry: ProviderRegistry,
+): value is SupportedProvider {
+  return value === "awin" && buildSupportedProviders(registry).includes(value);
 }
 
 function safeReason(code: AwinAdapterErrorCode | undefined): string {
@@ -190,8 +216,9 @@ export async function runSourceRefresh(
   deps: SourceRefreshDeps,
 ): Promise<SourceRefreshResult> {
   const mode: "preview" | "import" = args.import ? "import" : "preview";
+  const registry = deps.registry ?? createProviderRegistry();
 
-  if (!isSupportedProvider(args.provider)) {
+  if (!isSupportedProvider(args.provider, registry)) {
     return {
       exitCode: 1,
       output: { ok: false, mode, reason: "unknown_provider" },
@@ -219,7 +246,7 @@ export async function runSourceRefresh(
     };
   }
 
-  const config = readAwinConfig(deps.env);
+  const config = registry.getAwin().readConfig(deps.env);
   if (!config.enabled) {
     return {
       exitCode: 1,

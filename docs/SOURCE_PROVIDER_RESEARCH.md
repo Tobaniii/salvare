@@ -1,5 +1,35 @@
 # Salvare Source Provider Research — v0.31.0
 
+> **v0.43.0 status (2026-05-15):** Internal **provider registry** added
+> ([`server/source-provider-registry.ts`](../server/source-provider-registry.ts)).
+> Centralises descriptor metadata, safe status accessors, and typed preview
+> factories for the two registered providers (awin + impact). Each
+> descriptor carries explicit capability flags
+> (`preview` / `importSupported` / `cacheSupported`) plus a `userExposed`
+> boolean so future milestones can flip the admin/CLI gate per provider
+> without rewriting dispatch. v0.43 keeps **awin** fully user-exposed
+> (admin preview + admin import + source-refresh CLI + status dashboard
+> unchanged) and **impact registry-internal**: `importSupported: false`
+> and `userExposed: false` keep impact out of the admin URL allowlist, the
+> source-refresh CLI provider allowlist, and the admin UI. Registry
+> metadata is static strings + capability booleans only; status accessors
+> return `{ featureEnabled, configured }` booleans derived from the
+> existing `readAwinConfig` / `readImpactConfig` readers — env values,
+> API keys, account SIDs, the `Authorization` header, the DB path, raw
+> payloads, raw HTML, affiliate / tracking / payout fields, and stack
+> traces never appear in any registry-exported surface. Unknown provider
+> ids fail closed (`get()` → `null`, `statusFor()` →
+> `{ featureEnabled: false, configured: false }`). `server/index.ts` now
+> derives its default `awinPreview` and `providerStatus` callbacks from
+> the registry, so byte-compatible Awin behaviour is preserved while a
+> single registration point governs both providers. **Still out of
+> scope:** admin provider selector / dropdown, admin preview / import
+> route for impact, source-refresh CLI multi-provider support,
+> automatic import / apply, scheduler / background refresh, live
+> provider calls in tests, extension behaviour changes, `/coupons` /
+> export / import JSON shape changes, ranking / winner-selection
+> changes, `coupon_results` writes, and DB schema changes.
+>
 > **v0.42.0 status (2026-05-15):** Second mocked **provider adapter spike**
 > added for **impact.com** Promotions API. New module
 > [`server/source-provider-impact.ts`](../server/source-provider-impact.ts)

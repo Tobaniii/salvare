@@ -38,12 +38,11 @@ import { handleAdminSourceSummaryRoute } from "./admin-source-summary-routes";
 import { handleAdminSourceStatusRoute } from "./admin-source-status-routes";
 import type { ProviderStatusFn } from "./db-source-status";
 import { getSourceAwareCandidateOrder } from "./db-candidate-order";
-import { readAwinConfig, type AwinProviderConfig } from "./source-provider-config";
+import type { AwinFetcher } from "./source-provider-awin";
 import {
-  createAwinAdapter,
-  type AwinFetcher,
-  type AwinFetchInput,
-} from "./source-provider-awin";
+  createProviderRegistry,
+  type ProviderRegistry,
+} from "./source-provider-registry";
 
 export interface SalvareServerOptions {
   db: Db;
@@ -83,44 +82,35 @@ const DEFAULT_AWIN_FETCHER: AwinFetcher = async (url, init) => {
   }
 };
 
-function createDefaultProviderStatus(): ProviderStatusFn {
-  return (sourceId: string) => {
-    if (sourceId !== "awin") {
-      return { featureEnabled: false, configured: false };
-    }
-    const config = readAwinConfig(process.env);
-    if (config.enabled) {
-      return { featureEnabled: true, configured: true };
-    }
-    if (config.reason === "missing_api_key") {
-      return { featureEnabled: true, configured: false };
-    }
-    return { featureEnabled: false, configured: false };
-  };
+// v0.43.0 — Awin admin/CLI behavior unchanged on the wire; the default
+// preview function and the default `providerStatus` callback are both
+// derived from the internal provider registry so future milestones can flip
+// capability gates without rewiring this module.
+
+function createDefaultProviderStatus(
+  registry: ProviderRegistry,
+): ProviderStatusFn {
+  return registry.asProviderStatusFn();
 }
 
-function createDefaultAwinPreview(db: Db): AwinPreviewFn {
-  return (input: AwinFetchInput) => {
-    const config = readAwinConfig(process.env);
-    const adapter = createAwinAdapter({
-      // The adapter validates `config.enabled` at call time; the disabled
-      // branch never reaches the fetcher. Cast widens the union to the
-      // enabled shape the adapter expects in its options type.
-      config: config as AwinProviderConfig,
-      fetcher: DEFAULT_AWIN_FETCHER,
-      db,
-    });
-    return adapter.fetchAndParse(input);
-  };
+function createDefaultAwinPreview(
+  db: Db,
+  registry: ProviderRegistry,
+): AwinPreviewFn {
+  return registry.getAwin().createPreview({
+    db,
+    fetcher: DEFAULT_AWIN_FETCHER,
+  });
 }
 
 export function createSalvareServer(options: SalvareServerOptions): Server {
   const { db, adminToken } = options;
   const version = options.version ?? SALVARE_VERSION;
+  const registry = createProviderRegistry();
   const awinPreview: AwinPreviewFn =
-    options.awinPreview ?? createDefaultAwinPreview(db);
+    options.awinPreview ?? createDefaultAwinPreview(db, registry);
   const providerStatus: ProviderStatusFn =
-    options.providerStatus ?? createDefaultProviderStatus();
+    options.providerStatus ?? createDefaultProviderStatus(registry);
 
   function requireAuth(req: IncomingMessage, res: ServerResponse): boolean {
     if (isAuthorized(req.headers, adminToken)) return true;
