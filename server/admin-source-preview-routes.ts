@@ -23,14 +23,24 @@
 import { sendJson, readJsonBody, type RouteContext } from "./http-helpers";
 import { validateDomain } from "./source-adapters";
 import type {
-  AwinAdapterErrorCode,
   AwinAdapterResult,
   AwinFetchInput,
 } from "./source-provider-awin";
+import type { ProviderAdapterResult } from "./source-provider-types";
+import type {
+  ResolveProviderResult,
+  ResolvePurpose,
+} from "./source-provider-registry";
 
 const CACHE_KEY_PATTERN = /^[a-z0-9][a-z0-9._:/-]{0,255}$/;
 
-const SAFE_REASONS: ReadonlySet<AwinAdapterErrorCode> = new Set<AwinAdapterErrorCode>([
+// Strict provider-id path segment. Validated BEFORE the requested id is
+// echoed into any response field, so an illegal-charset segment can never
+// reach a `provider:<id>` envelope.
+const PROVIDER_ID_PATTERN = /^[a-z0-9-]{1,32}$/;
+const PREVIEW_PREFIX = "/admin/source-preview/";
+
+const SAFE_REASONS: ReadonlySet<string> = new Set<string>([
   "disabled",
   "missing_api_key",
   "rate_limited",
@@ -44,7 +54,17 @@ const SAFE_REASONS: ReadonlySet<AwinAdapterErrorCode> = new Set<AwinAdapterError
   "empty_response",
 ]);
 
+/**
+ * Back-compat alias retained so existing route tests can keep typing their
+ * injected stubs as `AwinPreviewFn`. Assignable to `ProviderPreviewClosure`.
+ */
 export type AwinPreviewFn = (input: AwinFetchInput) => Promise<AwinAdapterResult>;
+
+/** Bound registry resolver handed to the generic preview/import routes. */
+export type ProviderRouteResolver = (
+  providerId: string,
+  purpose: ResolvePurpose,
+) => ResolveProviderResult;
 
 interface PreviewBody {
   domain: string;
@@ -90,7 +110,7 @@ interface SafeCandidate {
   confidence?: number;
 }
 
-function buildSafeCandidates(result: AwinAdapterResult): SafeCandidate[] {
+function buildSafeCandidates(result: ProviderAdapterResult): SafeCandidate[] {
   return result.candidates.map((c) => {
     const out: SafeCandidate = {
       sourceId: c.sourceId,
@@ -105,21 +125,49 @@ function buildSafeCandidates(result: AwinAdapterResult): SafeCandidate[] {
   });
 }
 
-function safeReason(errorCode: AwinAdapterErrorCode | undefined): string {
+function safeReason(errorCode: string | undefined): string {
   if (errorCode !== undefined && SAFE_REASONS.has(errorCode)) return errorCode;
   return "unknown_error";
 }
 
+/**
+ * Extract a strict provider-id segment from `<prefix><id>`. Returns null for
+ * a missing/oversize/illegal-charset segment so the caller can fail-closed
+ * with a fixed literal BEFORE the raw input is echoed anywhere.
+ */
+export function extractProviderId(
+  pathname: string,
+  prefix: string,
+): string | null {
+  if (!pathname.startsWith(prefix)) return null;
+  const seg = pathname.slice(prefix.length);
+  if (!PROVIDER_ID_PATTERN.test(seg)) return null;
+  return seg;
+}
+
 export async function handleAdminSourcePreviewRoute(
   ctx: RouteContext,
-  awinPreview: AwinPreviewFn,
+  resolveProvider: ProviderRouteResolver,
 ): Promise<boolean> {
   const { req, res, url, requireAuth } = ctx;
 
-  if (req.method !== "POST" || url.pathname !== "/admin/source-preview/awin") {
+  if (
+    req.method !== "POST" ||
+    !url.pathname.startsWith(PREVIEW_PREFIX)
+  ) {
     return false;
   }
+  // Auth precedes segment validation so an unauthorized request to any
+  // /admin/source-preview/* (including an illegal segment) still 401s,
+  // keeping the auth matrix stable.
   if (!requireAuth(req, res)) return true;
+
+  const providerId = extractProviderId(url.pathname, PREVIEW_PREFIX);
+  if (providerId === null) {
+    // Raw requested id is never echoed — fixed literal only.
+    sendJson(res, 400, { ok: false, error: "invalid provider" });
+    return true;
+  }
 
   let body: unknown;
   try {
@@ -135,16 +183,37 @@ export async function handleAdminSourcePreviewRoute(
     return true;
   }
 
-  let result: AwinAdapterResult;
+  const resolved = resolveProvider(providerId, "preview");
+  if (!resolved.ok) {
+    // Valid-charset but registry-denied. v0.44 disabled-envelope shape,
+    // HTTP 200, no `disabled:true` (that flag is reserved for the adapter
+    // disabled / missing_api_key reasons only).
+    sendJson(res, 200, {
+      ok: false,
+      provider: providerId,
+      domain: validation.value.domain,
+      cacheHit: false,
+      fetched: false,
+      reason: resolved.reason,
+      candidateCount: 0,
+      candidates: [],
+      errors: [],
+    });
+    return true;
+  }
+
+  const provider = resolved.descriptor.providerId;
+
+  let result: ProviderAdapterResult;
   try {
-    result = await awinPreview({
+    result = await resolved.closure({
       domain: validation.value.domain,
       cacheKey: validation.value.query,
     });
   } catch {
     sendJson(res, 200, {
       ok: false,
-      provider: "awin",
+      provider,
       domain: validation.value.domain,
       cacheHit: false,
       fetched: false,
@@ -160,9 +229,9 @@ export async function handleAdminSourcePreviewRoute(
     const candidates = buildSafeCandidates(result);
     sendJson(res, 200, {
       ok: true,
-      provider: "awin",
+      provider,
       domain: validation.value.domain,
-      cacheHit: result.cacheHit,
+      cacheHit: result.cacheHit ?? false,
       fetched: result.fetched,
       candidateCount: candidates.length,
       candidates,
@@ -175,9 +244,9 @@ export async function handleAdminSourcePreviewRoute(
   const disabled = reason === "disabled" || reason === "missing_api_key";
   const body200: Record<string, unknown> = {
     ok: false,
-    provider: "awin",
+    provider,
     domain: validation.value.domain,
-    cacheHit: result.cacheHit,
+    cacheHit: result.cacheHit ?? false,
     fetched: result.fetched,
     reason,
     candidateCount: 0,

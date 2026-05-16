@@ -370,3 +370,64 @@ describe("createProviderRegistry — capability gating", () => {
     expect(cacheCapable).toEqual(["awin"]);
   });
 });
+
+describe("createProviderRegistry — resolveProvider (v0.45.0)", () => {
+  const awinDeps = () => ({
+    fetcher: awinFetcher(loadFixture("awin-offers-ok.json")),
+  });
+
+  it("resolves awin for preview and import (user-exposed, both capabilities)", () => {
+    const registry = createProviderRegistry();
+    for (const purpose of ["preview", "import"] as const) {
+      const r = registry.resolveProvider("awin", purpose, awinDeps());
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        expect(r.descriptor.providerId).toBe("awin");
+        expect(r.descriptor.sourceId).toBe("awin");
+        expect(r.descriptor.displayName).toBe("Awin Offers API");
+        expect(typeof r.closure).toBe("function");
+      }
+    }
+  });
+
+  it("denies impact for BOTH purposes — not_user_exposed (unreachable on user surface)", () => {
+    const registry = createProviderRegistry();
+    const prev = registry.resolveProvider("impact", "preview", awinDeps());
+    const imp = registry.resolveProvider("impact", "import", awinDeps());
+    expect(prev).toEqual({ ok: false, reason: "not_user_exposed" });
+    expect(imp).toEqual({ ok: false, reason: "not_user_exposed" });
+  });
+
+  it("denies unknown provider ids fail-closed (no throw, no raw)", () => {
+    const registry = createProviderRegistry();
+    for (const id of ["bogus", "", "AWIN", "awin/../impact", "impact "]) {
+      const r = registry.resolveProvider(id, "preview", awinDeps());
+      expect(r).toEqual({ ok: false, reason: "unknown_provider" });
+    }
+  });
+
+  it("never throws raw for any resolve input", () => {
+    const registry = createProviderRegistry();
+    expect(() =>
+      registry.resolveProvider("bogus", "import", awinDeps()),
+    ).not.toThrow();
+    expect(() =>
+      registry.resolveProvider("impact", "import", awinDeps()),
+    ).not.toThrow();
+  });
+
+  it("resolved awin closure runs the adapter and returns a generic result", async () => {
+    const registry = createProviderRegistry();
+    const r = registry.resolveProvider("awin", "preview", {
+      fetcher: awinFetcher(loadFixture("awin-offers-ok.json")),
+      env: awinEnabledEnv(),
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      const out = await r.closure({ domain: "shop.example" });
+      expect(out.providerId).toBe("awin");
+      expect(out.sourceId).toBe("awin");
+      expect(Array.isArray(out.candidates)).toBe(true);
+    }
+  });
+});

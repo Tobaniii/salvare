@@ -424,3 +424,129 @@ describe("POST /admin/source-preview/awin — auth", () => {
     expect(body.ok).toBe(true);
   });
 });
+
+describe("POST /admin/source-preview/:providerId — generic routing (v0.45.0)", () => {
+  let h: Harness;
+  let dbRef!: Db;
+  beforeAll(async () => {
+    const db = openDatabase(":memory:");
+    const preview = buildFromAdapter(
+      db,
+      enabledConfig(),
+      fixtureFetcher(loadFixture("awin-offers-ok.json")),
+    );
+    const server = createSalvareServer({
+      db,
+      adminToken: null,
+      awinPreview: preview,
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address() as AddressInfo;
+    h = { baseUrl: `http://127.0.0.1:${address.port}`, server, db };
+    dbRef = db;
+  });
+  afterAll(async () => stopHarness(h));
+
+  it("awin preview succeeds via the :providerId path with the v0.44 response shape", async () => {
+    const res = await fetch(`${h.baseUrl}/admin/source-preview/awin`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: "shop.example" }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.provider).toBe("awin");
+    // Byte-identical key set vs v0.44 success envelope.
+    expect(Object.keys(body).sort()).toEqual(
+      [
+        "ok",
+        "provider",
+        "domain",
+        "cacheHit",
+        "fetched",
+        "candidateCount",
+        "candidates",
+        "errors",
+      ].sort(),
+    );
+  });
+
+  it("writes a source_fetch_log row with source_id='awin' on the generic path", async () => {
+    await fetch(`${h.baseUrl}/admin/source-preview/awin`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: "fetchlog.example" }),
+    });
+    const row = dbRef
+      .prepare(
+        `SELECT source_id FROM source_fetch_log
+           WHERE source_id = 'awin' ORDER BY id DESC LIMIT 1`,
+      )
+      .get() as { source_id: string } | undefined;
+    expect(row).toBeDefined();
+    expect(row!.source_id).toBe("awin");
+  });
+
+  it("unknown provider fails closed (HTTP 200 deny envelope, no stack/raw)", async () => {
+    const res = await fetch(`${h.baseUrl}/admin/source-preview/bogus`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: "shop.example" }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.reason).toBe("unknown_provider");
+    expect(body.provider).toBe("bogus");
+    expect(body.candidates).toEqual([]);
+    expect(body.disabled).toBeUndefined();
+    const raw = JSON.stringify(body);
+    expect(raw).not.toContain("Error");
+    expect(raw).not.toContain("at ");
+    expect(raw).not.toContain("stack");
+  });
+
+  it("impact preview is denied on the user surface (not_user_exposed)", async () => {
+    const res = await fetch(`${h.baseUrl}/admin/source-preview/impact`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: "shop.example" }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.reason).toBe("not_user_exposed");
+    expect(body.candidates).toEqual([]);
+    expect(body.candidateCount).toBe(0);
+  });
+
+  it("illegal-charset segment returns 400 and never echoes the raw id", async () => {
+    const res = await fetch(`${h.baseUrl}/admin/source-preview/aw!n`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: "shop.example" }),
+    });
+    expect(res.status).toBe(400);
+    const raw = await res.text();
+    expect(JSON.parse(raw)).toEqual({ ok: false, error: "invalid provider" });
+    expect(raw).not.toContain("aw!n");
+  });
+
+  it("oversize segment returns 400 without echoing the raw id", async () => {
+    const huge = "a".repeat(64);
+    const res = await fetch(
+      `${h.baseUrl}/admin/source-preview/${huge}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: "shop.example" }),
+      },
+    );
+    expect(res.status).toBe(400);
+    const raw = await res.text();
+    expect(raw).not.toContain(huge);
+  });
+});

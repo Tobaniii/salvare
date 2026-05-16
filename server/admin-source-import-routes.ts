@@ -23,17 +23,16 @@
 import { sendJson, readJsonBody, type RouteContext } from "./http-helpers";
 import { validateDomain } from "./source-adapters";
 import { importProviderCandidates } from "./db-source-import";
-import type { AwinPreviewFn } from "./admin-source-preview-routes";
-import type {
-  AwinAdapterErrorCode,
-  AwinAdapterResult,
-} from "./source-provider-awin";
+import {
+  extractProviderId,
+  type ProviderRouteResolver,
+} from "./admin-source-preview-routes";
+import type { ProviderAdapterResult } from "./source-provider-types";
 
 const CONFIRMATION_PHRASE = "IMPORT";
-const AWIN_SOURCE_ID = "awin";
-const AWIN_SOURCE_NAME = "Awin";
+const IMPORT_PREFIX = "/admin/source-import/";
 
-const SAFE_REASONS: ReadonlySet<AwinAdapterErrorCode> = new Set<AwinAdapterErrorCode>([
+const SAFE_REASONS: ReadonlySet<string> = new Set<string>([
   "disabled",
   "missing_api_key",
   "rate_limited",
@@ -71,21 +70,32 @@ function validateImportBody(body: unknown): Validation {
   return { ok: true, value: { domain } };
 }
 
-function safeReason(errorCode: AwinAdapterErrorCode | undefined): string {
+function safeReason(errorCode: string | undefined): string {
   if (errorCode !== undefined && SAFE_REASONS.has(errorCode)) return errorCode;
   return "unknown_error";
 }
 
 export async function handleAdminSourceImportRoute(
   ctx: RouteContext,
-  awinPreview: AwinPreviewFn,
+  resolveProvider: ProviderRouteResolver,
 ): Promise<boolean> {
   const { db, req, res, url, requireAuth } = ctx;
 
-  if (req.method !== "POST" || url.pathname !== "/admin/source-import/awin") {
+  if (
+    req.method !== "POST" ||
+    !url.pathname.startsWith(IMPORT_PREFIX)
+  ) {
     return false;
   }
+  // Auth precedes segment validation so an unauthorized request to any
+  // /admin/source-import/* (including an illegal segment) still 401s.
   if (!requireAuth(req, res)) return true;
+
+  const providerId = extractProviderId(url.pathname, IMPORT_PREFIX);
+  if (providerId === null) {
+    sendJson(res, 400, { ok: false, error: "invalid provider" });
+    return true;
+  }
 
   let body: unknown;
   try {
@@ -103,13 +113,39 @@ export async function handleAdminSourceImportRoute(
 
   const { domain } = validation.value;
 
-  let result: AwinAdapterResult;
+  const resolved = resolveProvider(providerId, "import");
+  if (!resolved.ok) {
+    // Valid-charset but registry-denied (unknown / not user-exposed /
+    // importSupported:false). v0.44 disabled-envelope shape, HTTP 200, no
+    // `disabled:true`. This is the fail-closed gate that keeps impact
+    // (importSupported:false, userExposed:false) unreachable here.
+    sendJson(res, 200, {
+      ok: false,
+      provider: providerId,
+      domain,
+      reason: resolved.reason,
+      candidatesAccepted: 0,
+      codesImported: 0,
+      provenanceRecorded: 0,
+      rejected: 0,
+      errors: [],
+    });
+    return true;
+  }
+
+  // Registry-authoritative provider identity. Never the old AWIN_* constant,
+  // never a client-supplied value — the second-pass candidate filter and the
+  // importProviderCandidates args are all driven from the descriptor.
+  const descriptor = resolved.descriptor;
+  const provider = descriptor.providerId;
+
+  let result: ProviderAdapterResult;
   try {
-    result = await awinPreview({ domain });
+    result = await resolved.closure({ domain });
   } catch {
     sendJson(res, 200, {
       ok: false,
-      provider: AWIN_SOURCE_ID,
+      provider,
       domain,
       reason: "fetch_error",
       candidatesAccepted: 0,
@@ -126,7 +162,7 @@ export async function handleAdminSourceImportRoute(
     const disabled = reason === "disabled" || reason === "missing_api_key";
     const responseBody: Record<string, unknown> = {
       ok: false,
-      provider: AWIN_SOURCE_ID,
+      provider,
       domain,
       reason,
       candidatesAccepted: 0,
@@ -143,9 +179,10 @@ export async function handleAdminSourceImportRoute(
   // The adapter has already validated and redacted candidate fields. Apply a
   // second-pass allowlist + domain match here so the import path itself has
   // an explicit redaction boundary independent of the adapter's contract.
+  // The sourceId compared here is the resolved descriptor's, not a constant.
   let rejected = 0;
   const accepted = result.candidates.flatMap((candidate) => {
-    if (candidate.sourceId !== AWIN_SOURCE_ID) {
+    if (candidate.sourceId !== descriptor.sourceId) {
       rejected += 1;
       return [];
     }
@@ -164,16 +201,16 @@ export async function handleAdminSourceImportRoute(
   });
 
   const stats = importProviderCandidates(db, {
-    sourceId: AWIN_SOURCE_ID,
-    sourceName: AWIN_SOURCE_NAME,
-    sourceType: "api",
+    sourceId: descriptor.sourceId,
+    sourceName: descriptor.displayName,
+    sourceType: descriptor.sourceType,
     domain,
     candidates: accepted,
   });
 
   sendJson(res, 200, {
     ok: true,
-    provider: AWIN_SOURCE_ID,
+    provider,
     domain,
     candidatesAccepted: stats.candidatesAccepted,
     codesImported: stats.codesImported,

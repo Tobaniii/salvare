@@ -151,6 +151,24 @@ const PROTECTED_ENDPOINTS: Array<{
     path: "/admin/source-providers",
     init: { method: "GET" },
   },
+  {
+    name: "POST /admin/source-preview/:providerId (unknown)",
+    path: "/admin/source-preview/bogus",
+    init: {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: "example.com" }),
+    },
+  },
+  {
+    name: "POST /admin/source-import/:providerId (unknown)",
+    path: "/admin/source-import/bogus",
+    init: {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: "example.com", confirm: "IMPORT" }),
+    },
+  },
 ];
 
 describe("auth disabled (no SALVARE_ADMIN_TOKEN)", () => {
