@@ -117,6 +117,7 @@ The near-term roadmap exists to translate this policy into small, reviewable mil
 - **v0.29** — Source cache and rate-limit foundation.
 - **v0.30** — Local source-adapter fixture system (no live network).
 - **v0.31+** — Provider, API, and feed research; first real provider spike behind the allowlist and kill switch defined above.
+- **Phase 6, post-v0.57 (planned, not scheduled to a fixed version)** — Allowlisted HTML-adapter source type. Delivers the *mechanism only*: a section 4 allowlisted, section 6 guarded HTML-extraction source type that rides the v0.47 generic pipeline and v0.48 activation framework and builds on the v0.30 parser-only `createHtmlFixtureAdapter`. Ships disabled by default with an **empty allowlist** — no live site is enabled by this milestone. Each real site is a separate, later, per-source decision that requires that site's explicit section 4 permission (official API or explicitly permitted structured extraction) and section 8 terms/robots/legal clearance before it may be added to the allowlist. No generic or broad crawling (section 5). Sequenced after the API-provider foundation (Awin, impact.com, third provider) is stable so it reuses, rather than forks, the shared pipeline.
 
 The roadmap is a planning aid, not a commitment. Every milestone above must still satisfy this policy before any code lands.
 
