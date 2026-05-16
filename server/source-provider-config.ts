@@ -43,22 +43,27 @@ export type SourceProviderConfig =
   | AwinProviderConfig;
 
 // v0.42.0 — second mocked provider adapter (impact.com Promotions API).
+// v0.49.0 — real-shaped: account SID is now REQUIRED (fail-closed).
 //
 // `readImpactConfig` is an independent reader so v0.42 does not introduce a
 // shared provider selector or generic registry. Env gating is parallel to
-// Awin: a literal `"true"` flag plus a non-blank API key. Account SID is
-// optional (a live impact.com call would also need it, but the mocked
-// fixture-driven test path does not require it).
+// Awin: a literal `"true"` flag plus non-blank credentials.
 //
-// The real impact.com API authenticates via HTTP Basic with
-// `<accountSid>:<authToken>`. The mocked adapter in v0.42 uses a `Bearer`
-// header to match the existing Awin redaction-assertion surface; live
-// activation must reconcile auth headers and credential format before
-// production use.
+// Credential mapping (documented impact.com Promotions API contract):
+//  - `SALVARE_IMPACT_API_KEY`      → impact.com **authToken**
+//  - `SALVARE_IMPACT_ACCOUNT_SID`  → impact.com **Account SID**
+//
+// The account SID appears in BOTH the request URL path
+// (`/Mediapartners/{accountSid}/Promotions`) AND the HTTP Basic credential
+// pair `base64(accountSid:authToken)`, so it is required and fail-closed
+// (blank/missing → disabled with reason `missing_account_sid`), mirroring
+// `readAwinConfig`'s fail-closed shape. This contract is documented, not
+// live-verified — see docs/SOURCE_PROVIDER_RESEARCH.md §2.6 / §4.
 
 export type ImpactProviderDisabledReason =
   | "flag_off"
-  | "missing_api_key";
+  | "missing_api_key"
+  | "missing_account_sid";
 
 export interface ImpactProviderDisabled {
   enabled: false;
@@ -68,8 +73,10 @@ export interface ImpactProviderDisabled {
 export interface ImpactProviderConfig {
   enabled: true;
   providerId: "impact";
+  /** impact.com authToken (from `SALVARE_IMPACT_API_KEY`). */
   apiKey: string;
-  accountSid: string | null;
+  /** impact.com Account SID — required (URL path + Basic credential pair). */
+  accountSid: string;
 }
 
 export type ImpactSourceProviderConfig =
@@ -127,6 +134,9 @@ export function readImpactConfig(
     return { enabled: false, reason: "missing_api_key" };
   }
   const accountSid = readTrimmed(env, "SALVARE_IMPACT_ACCOUNT_SID");
+  if (accountSid === null) {
+    return { enabled: false, reason: "missing_account_sid" };
+  }
   return {
     enabled: true,
     providerId: "impact",

@@ -634,6 +634,15 @@ impact.com (formerly Impact Radius) is a major US-focused partnership and affili
 
 **v0.32.0 candidate?** Moderate — solid REST API and good US merchant coverage, but per-merchant approval overhead and terms verification make it a better second-wave integration after Awin is prototyped.
 
+**v0.49.0 status — real-shaped, documented (not live-verified), gated + hidden.** The adapter ([`server/source-provider-impact.ts`](../server/source-provider-impact.ts)) now speaks the *documented* impact.com Promotions API contract instead of the v0.42 `Bearer` test-parity placeholder. The following are reflected from developer.impact.com documentation but **NOT confirmed against a live publisher account** — each is an OPEN §4 item that gates any future live flip:
+
+- **Auth = HTTP Basic.** `Authorization: Basic base64(accountSid:authToken)` (`SALVARE_IMPACT_API_KEY` → impact.com authToken; `SALVARE_IMPACT_ACCOUNT_SID` → Account SID, now **required, fail-closed**). Built only from already-read config, never client input. *Documented, not live-verified.*
+- **Endpoint.** `/Mediapartners/{accountSid}/Promotions?advertiserDomain=…`. *Documented, not live-verified.*
+- **Envelope / field-name case.** Top-level `Promotions` (tolerant of `promotions`); PascalCase fields with camelCase tolerated. *Documented, not live-verified.*
+- **Pagination — KNOWN GAP.** The impact.com pagination model is **not implemented**. v0.49 performs a **single-batch fetch only**, bounded by the existing §6 fetch-timeout and max-response guardrails. No speculative pagination code was written. The real pagination contract (cursor vs. page/offset, page-size limits, total-count signalling) must be researched and implemented before a live flip — see §4.
+
+Impact remains `userExposed:false` / `importEnabled:false`; no live HTTP; the live flip is a separate owner-gated step after the §4 checklist below is completed.
+
 ---
 
 ### 2.7 Admitad / Mitgo
@@ -798,6 +807,14 @@ This checklist must be completed and documented before any live provider integra
 - [ ] **Checkout-verified final total decides the winner.** Fetched codes are candidates only. Every candidate must be applied on the live checkout, the resulting grand total must be re-read, and the lowest verified `finalTotalCents` decides the winner — not the provider's advertised savings or priority.
 - [ ] **API key and credential hygiene.** API keys and tokens are passed via environment variable only. Never logged. Never committed. Never echoed in error messages, health responses, or `source_fetch_log` entries.
 - [ ] **Kill switch and allowlist.** The provider source must be registered in `coupon_sources` with `enabled = 1`. Setting `enabled = 0` or unsetting the feature-flag env var must immediately disable all fetches without a rebuild.
+
+### 4.1 impact.com — additional OPEN items (added v0.49.0)
+
+The v0.49.0 adapter is **real-shaped against documented behavior only**. The following impact.com-specific items are **OPEN** and must each be marked verified with a source before `SALVARE_IMPACT_ENABLED=true` is set in any environment other than local development with mocked HTTP. **None of these may be checked by code changes** — they require human review against developer.impact.com and a live publisher account.
+
+- [ ] **Auth scheme verification (documented, not live-verified).** Confirm the live impact.com Promotions API authenticates via HTTP Basic with the credential pair `accountSid:authToken` (base64). The adapter implements `Authorization: Basic base64(accountSid:authToken)` from documentation; confirm header name, scheme, and credential ordering against a live account.
+- [ ] **Endpoint + envelope + field-name verification (documented, not live-verified).** Confirm the path `/Mediapartners/{accountSid}/Promotions?advertiserDomain=…`, the top-level response envelope key (`Promotions` vs `promotions`), and the exact promo-code / domain / label / expiry field names and case against the live API.
+- [ ] **Pagination model (KNOWN GAP — unimplemented in v0.49).** v0.49 fetches a **single batch only**, bounded by the existing §6 timeout / max-response guardrails. Research the real impact.com pagination contract (cursor vs page/offset, page-size caps, total-count signalling, rate-limit interaction) and implement bounded, guardrail-compliant pagination before enabling live fetches — otherwise merchant promo coverage is silently truncated.
 
 ---
 

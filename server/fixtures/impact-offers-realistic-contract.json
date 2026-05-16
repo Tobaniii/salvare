@@ -1,0 +1,81 @@
+{
+  "_note": "CONTRACT-STYLE fixture — not a live-captured impact.com Promotions API response. Shape reflects DOCUMENTED (not live-verified) impact.com developer documentation per docs/SOURCE_PROVIDER_RESEARCH.md §2.6/§4. All IDs, URLs, codes, and credentials are obviously fake placeholders and must never be treated as real.",
+  "Promotions": [
+    {
+      "Id": 2001,
+      "CampaignId": 7777,
+      "CampaignName": "Shop Example Partner Program",
+      "AdvertiserUrl": "https://shop.example/",
+      "CountryCode": "US",
+      "Currency": "USD",
+      "PromotionType": "PROMO_CODE",
+      "PromoCode": "SAVE15",
+      "Name": "15% off sitewide",
+      "Description": "Get 15% off your entire order with this code",
+      "EndDate": "2026-12-31",
+      "StartDate": "2026-01-01",
+      "TermsAndConditions": "Minimum spend $30. Excludes sale items.",
+      "TrackingUrl": "https://fake-tracking.example/click?cid=7777&ref=SANITISED",
+      "DeepLink": "https://fake-tracking.example/deep?cid=7777&u=https%3A%2F%2Fshop.example%2F",
+      "ClickUrl": "https://fake-tracking.example/c/7777",
+      "AffiliateUrl": "https://fake-tracking.example/a/7777",
+      "PartnerId": "FAKE-PARTNER-NOT-REAL",
+      "AdvertiserId": "FAKE-ADVERTISER-NOT-REAL",
+      "AccountSid": "FAKE-ACCOUNT-SID-NOT-REAL",
+      "AuthToken": "FAKE-AUTH-TOKEN-NOT-REAL",
+      "Payout": 1.20,
+      "PayoutRate": 8.0,
+      "Commission": 2.5,
+      "CommissionRate": 8.0,
+      "EarningsPerClick": 0.42
+    },
+    {
+      "Id": 2002,
+      "CampaignId": 7777,
+      "CampaignName": "Shop Example Partner Program",
+      "domain": "shop.example",
+      "CountryCode": "US",
+      "Currency": "USD",
+      "Type": "promotion_code",
+      "CouponCode": "FREESHIP30",
+      "Description": "Free shipping on orders over $30",
+      "ValidTo": "2026-09-15T23:59:00Z",
+      "trackingUrl": "https://fake-tracking.example/click?cid=7777&ref=SANITISED2",
+      "deepLink": "https://fake-tracking.example/deep?cid=7777",
+      "partnerId": "FAKE-PARTNER-NOT-REAL",
+      "commissionRate": 6.5
+    },
+    {
+      "Id": 2003,
+      "CampaignId": 7777,
+      "CampaignName": "Shop Example Partner Program",
+      "AdvertiserUrl": "https://shop.example/",
+      "PromotionType": "CASHBACK",
+      "Name": "5% cashback on all orders",
+      "EndDate": "2026-12-31",
+      "Payout": 5.0,
+      "CommissionRate": 5.0
+    },
+    {
+      "Id": 2004,
+      "CampaignId": 7777,
+      "CampaignName": "Shop Example Partner Program",
+      "MerchantUrl": "https://shop.example/",
+      "OfferType": "coupon",
+      "Code": "SUMMER20",
+      "Title": "20% off summer styles",
+      "EndsAt": "2026-08-31",
+      "TrackingUrl": "https://fake-tracking.example/awclick?cid=7777",
+      "EarningsPerClick": 0.31
+    },
+    {
+      "Id": 2005,
+      "CampaignId": 7777,
+      "CampaignName": "Shop Example Partner Program",
+      "AdvertiserUrl": "https://shop.example/",
+      "PromotionType": "PRODUCT",
+      "Name": "Featured product promotion — no code",
+      "PromoCode": "PROD2026"
+    }
+  ]
+}

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { openDatabase, type Db } from "./db";
 import { ensureCouponSource } from "./db-sources";
+import { getSourceStatusSummary } from "./db-source-status";
 import {
   readImpactConfig,
   type ImpactProviderConfig,
@@ -20,6 +21,10 @@ const FIXED_NOW_MS = Date.parse("2026-05-15T12:00:00.000Z");
 const FIXED_NOW_ISO = new Date(FIXED_NOW_MS).toISOString();
 const FAKE_API_KEY = "fake-impact-key-not-real";
 const FAKE_ACCOUNT_SID = "FAKE-ACCOUNT-SID-NOT-REAL";
+// Documented impact.com auth: HTTP Basic base64(accountSid:authToken).
+const DECODED_CRED = `${FAKE_ACCOUNT_SID}:${FAKE_API_KEY}`;
+const BASIC_B64 = Buffer.from(DECODED_CRED, "utf8").toString("base64");
+const EXPECTED_BASIC = `Basic ${BASIC_B64}`;
 
 function fixedClock(): ImpactAdapterClock {
   let calls = 0;
@@ -65,12 +70,24 @@ function fetcherFromFixture(
   return { fetcher, calls };
 }
 
-function expectNoSecretsLeak(result: ImpactAdapterResult): void {
-  const text = JSON.stringify(result);
+// Asserts the HTTP Basic credential (header value, the raw base64 token,
+// and the decoded `accountSid:authToken` pair) and the legacy Bearer/secret
+// surface never appear in an arbitrary serialized blob (result, fetch log,
+// cache row, status summary, error).
+function expectNoBasicCredLeak(text: string): void {
   expect(text).not.toContain(FAKE_API_KEY);
   expect(text).not.toContain(FAKE_ACCOUNT_SID);
+  expect(text).not.toContain(DECODED_CRED);
+  expect(text).not.toContain(BASIC_B64);
+  expect(text).not.toContain(EXPECTED_BASIC);
   expect(text.toLowerCase()).not.toContain("authorization");
   expect(text.toLowerCase()).not.toContain("bearer");
+  expect(text).not.toContain("Basic ");
+}
+
+function expectNoSecretsLeak(result: ImpactAdapterResult): void {
+  const text = JSON.stringify(result);
+  expectNoBasicCredLeak(text);
   expect(text).not.toContain("TrackingUrl");
   expect(text).not.toContain("trackingUrl");
   expect(text).not.toContain("DeepLink");
@@ -119,21 +136,26 @@ describe("readImpactConfig", () => {
     ).toEqual({ enabled: false, reason: "missing_api_key" });
   });
 
-  it("returns enabled config when flag + key are present (account sid optional)", () => {
+  it("returns missing_account_sid when account sid is absent (now required)", () => {
     expect(
       readImpactConfig({
         SALVARE_IMPACT_ENABLED: "true",
         SALVARE_IMPACT_API_KEY: "real-key",
       }),
-    ).toEqual({
-      enabled: true,
-      providerId: "impact",
-      apiKey: "real-key",
-      accountSid: null,
-    });
+    ).toEqual({ enabled: false, reason: "missing_account_sid" });
   });
 
-  it("captures account sid when provided", () => {
+  it("returns missing_account_sid when account sid is blank", () => {
+    expect(
+      readImpactConfig({
+        SALVARE_IMPACT_ENABLED: "true",
+        SALVARE_IMPACT_API_KEY: "real-key",
+        SALVARE_IMPACT_ACCOUNT_SID: "   ",
+      }),
+    ).toEqual({ enabled: false, reason: "missing_account_sid" });
+  });
+
+  it("returns enabled config when flag + key + account sid are present", () => {
     expect(
       readImpactConfig({
         SALVARE_IMPACT_ENABLED: "true",
@@ -253,24 +275,62 @@ describe("createImpactAdapter — parse paths (mocked HTTP)", () => {
     expect(calls[0].url).toContain(
       `Mediapartners/${encodeURIComponent(FAKE_ACCOUNT_SID)}`,
     );
-    expect(calls[0].headers.Authorization).toBe(`Bearer ${FAKE_API_KEY}`);
+    expect(calls[0].headers.Authorization).toBe(EXPECTED_BASIC);
+    expect(calls[0].headers.Authorization.startsWith("Basic ")).toBe(true);
 
     expectNoSecretsLeak(result);
   });
 
-  it("works without account sid (url omits Mediapartners segment)", async () => {
+  it("url always includes the required Mediapartners/{accountSid} segment", async () => {
     const { fetcher, calls } = fetcherFromFixture(
       loadFixture("impact-offers-ok.json"),
     );
     const adapter = createImpactAdapter({
-      config: enabledConfig({ accountSid: null }),
+      config: enabledConfig(),
       fetcher,
       clock: fixedClock(),
     });
     const result = await adapter.fetchAndParse({ domain: "shop.example" });
     expect(result.ok).toBe(true);
-    expect(calls[0].url).not.toContain("Mediapartners");
-    expect(calls[0].url).toContain("/Promotions?advertiserDomain=shop.example");
+    expect(calls[0].url).toContain(
+      `/Mediapartners/${encodeURIComponent(FAKE_ACCOUNT_SID)}/Promotions?advertiserDomain=shop.example`,
+    );
+  });
+
+  it("fails closed (no fetch) when account sid is blank", async () => {
+    let called = false;
+    const fetcher: ImpactFetcher = async () => {
+      called = true;
+      return { status: 200, body: "{}" };
+    };
+    const adapter = createImpactAdapter({
+      config: enabledConfig({ accountSid: "" }),
+      fetcher,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "shop.example" });
+    expect(called).toBe(false);
+    expect(result.ok).toBe(false);
+    expect(result.errorCode).toBe("missing_account_sid");
+    expect(result.fetched).toBe(false);
+    expect(result.candidates).toEqual([]);
+  });
+
+  it("fails closed (no fetch) when account sid is whitespace", async () => {
+    let called = false;
+    const fetcher: ImpactFetcher = async () => {
+      called = true;
+      return { status: 200, body: "{}" };
+    };
+    const adapter = createImpactAdapter({
+      config: enabledConfig({ accountSid: "   " }),
+      fetcher,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "shop.example" });
+    expect(called).toBe(false);
+    expect(result.errorCode).toBe("missing_account_sid");
+    expect(result.fetched).toBe(false);
   });
 
   it("returns parse_error on malformed JSON", async () => {
@@ -997,5 +1057,202 @@ describe("createImpactAdapter — cache-read short-circuit (v0.47.0 parity)", ()
     ).n;
     expect(codeCount).toBe(0);
     expect(provCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v0.49.0 — HTTP Basic credential redaction (distinct leak vector vs Bearer)
+//
+// impact.com auth is now `Authorization: Basic base64(accountSid:authToken)`.
+// The header value, the raw base64 token, and the decoded
+// `accountSid:authToken` pair must NEVER appear in the result, the
+// source_fetch_log, the source_cache row (metadata_json / candidates_json),
+// the admin source-status summary, or any error — across success AND every
+// failure path. No live HTTP.
+// ---------------------------------------------------------------------------
+
+describe("createImpactAdapter — HTTP Basic credential redaction (v0.49.0)", () => {
+  it("constructs the documented Basic header from config (not client input)", async () => {
+    const { fetcher, calls } = fetcherFromFixture(
+      loadFixture("impact-offers-ok.json"),
+    );
+    const adapter = createImpactAdapter({
+      config: enabledConfig(),
+      fetcher,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "shop.example" });
+    expect(result.ok).toBe(true);
+    expect(calls[0].headers.Authorization).toBe(EXPECTED_BASIC);
+    // The decoded pair round-trips to exactly accountSid:authToken.
+    const decoded = Buffer.from(
+      calls[0].headers.Authorization.slice("Basic ".length),
+      "base64",
+    ).toString("utf8");
+    expect(decoded).toBe(DECODED_CRED);
+    expectNoBasicCredLeak(JSON.stringify(result));
+  });
+
+  it("Basic credential is absent from fetch log, cache row, and status summary on success", async () => {
+    const db = makeDb();
+    const { fetcher } = fetcherFromFixture(loadFixture("impact-offers-ok.json"));
+    const adapter = createImpactAdapter({
+      config: enabledConfig(),
+      fetcher,
+      db,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "shop.example" });
+    expectNoBasicCredLeak(JSON.stringify(result));
+
+    const log = db
+      .prepare("SELECT * FROM source_fetch_log WHERE source_id = ?")
+      .all("impact");
+    expectNoBasicCredLeak(JSON.stringify(log));
+
+    const cache = db
+      .prepare("SELECT * FROM source_cache WHERE source_id = ?")
+      .all("impact");
+    expectNoBasicCredLeak(JSON.stringify(cache));
+
+    const status = getSourceStatusSummary(db, { now: FIXED_NOW_ISO });
+    expectNoBasicCredLeak(JSON.stringify(status));
+  });
+
+  it("Basic credential is absent from every failure path", async () => {
+    const db = makeDb();
+    // 4xx with a payload that echoes a fake secret-shaped value.
+    const { fetcher } = fetcherFromFixture(
+      `{"error":"unauthorized","echo":"${DECODED_CRED}"}`,
+      401,
+    );
+    const adapter = createImpactAdapter({
+      config: enabledConfig(),
+      fetcher,
+      db,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "shop.example" });
+    expect(result.ok).toBe(false);
+    expect(result.errorCode).toBe("http_4xx");
+    expectNoBasicCredLeak(JSON.stringify(result));
+    const log = db
+      .prepare("SELECT * FROM source_fetch_log WHERE source_id = ?")
+      .all("impact");
+    expectNoBasicCredLeak(JSON.stringify(log));
+  });
+
+  it("throwing fetcher whose message embeds the decoded pair does not leak it", async () => {
+    const fetcher: ImpactFetcher = async () => {
+      throw new Error(`network down: ${DECODED_CRED} / ${EXPECTED_BASIC}`);
+    };
+    const adapter = createImpactAdapter({
+      config: enabledConfig(),
+      fetcher,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "shop.example" });
+    expect(result.ok).toBe(false);
+    expect(result.errorCode).toBe("fetch_error");
+    expectNoBasicCredLeak(JSON.stringify(result));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v0.49.0 — Realistic documented-contract fixture (mirrors the Awin v0.41
+// realistic-contract suite). CONTRACT-STYLE, not live-captured.
+// ---------------------------------------------------------------------------
+
+describe("createImpactAdapter — realistic contract fixture (v0.49.0)", () => {
+  function makeAdapter(db?: ReturnType<typeof makeDb>) {
+    const { fetcher } = fetcherFromFixture(
+      loadFixture("impact-offers-realistic-contract.json"),
+    );
+    return createImpactAdapter({
+      config: enabledConfig(),
+      fetcher,
+      db,
+      clock: fixedClock(),
+    });
+  }
+
+  it("extracts 3 promo candidates and drops cashback and product offers", async () => {
+    const result = await makeAdapter().fetchAndParse({ domain: "shop.example" });
+    expect(result.ok).toBe(true);
+    expect(result.outcome).toBe("ok");
+    expect(result.candidates).toHaveLength(3);
+    const codes = result.candidates.map((c) => c.code);
+    expect(codes).toContain("SAVE15");
+    expect(codes).toContain("FREESHIP30");
+    expect(codes).toContain("SUMMER20");
+  });
+
+  it("affiliate, payout, partner, and tracking fields are stripped from every candidate", async () => {
+    const result = await makeAdapter().fetchAndParse({ domain: "shop.example" });
+    const serialized = JSON.stringify(result.candidates);
+    expect(serialized).not.toContain("TrackingUrl");
+    expect(serialized).not.toContain("trackingUrl");
+    expect(serialized).not.toContain("DeepLink");
+    expect(serialized).not.toContain("deepLink");
+    expect(serialized).not.toContain("ClickUrl");
+    expect(serialized).not.toContain("AffiliateUrl");
+    expect(serialized).not.toContain("PartnerId");
+    expect(serialized).not.toContain("partnerId");
+    expect(serialized).not.toContain("AdvertiserId");
+    expect(serialized).not.toContain("AccountSid");
+    expect(serialized).not.toContain("AuthToken");
+    expect(serialized).not.toContain("Payout");
+    expect(serialized).not.toContain("Commission");
+    expect(serialized).not.toContain("EarningsPerClick");
+    expect(serialized).not.toContain("TermsAndConditions");
+    expect(serialized).not.toContain("CampaignId");
+  });
+
+  it("CouponCode alias resolves to code; Type alias resolves promo type", async () => {
+    const result = await makeAdapter().fetchAndParse({ domain: "shop.example" });
+    const freeship = result.candidates.find((c) => c.code === "FREESHIP30");
+    expect(freeship).toBeDefined();
+    expect(freeship?.sourceId).toBe("impact");
+    expect(freeship?.domain).toBe("shop.example");
+  });
+
+  it("ValidTo→expiresAt, Description→label aliases resolve", async () => {
+    const result = await makeAdapter().fetchAndParse({ domain: "shop.example" });
+    const freeship = result.candidates.find((c) => c.code === "FREESHIP30");
+    expect(freeship?.expiresAt).toBe("2026-09-15T23:59:00Z");
+    expect(freeship?.label).toBe("Free shipping on orders over $30");
+  });
+
+  it("OfferType alias + EndsAt + Title + MerchantUrl host resolve", async () => {
+    const result = await makeAdapter().fetchAndParse({ domain: "shop.example" });
+    const summer = result.candidates.find((c) => c.code === "SUMMER20");
+    expect(summer).toBeDefined();
+    expect(summer?.domain).toBe("shop.example");
+    expect(summer?.label).toBe("20% off summer styles");
+    expect(summer?.expiresAt).toBe("2026-08-31");
+  });
+
+  it("output shape is stable — each candidate has required fields only", async () => {
+    const result = await makeAdapter().fetchAndParse({ domain: "shop.example" });
+    for (const c of result.candidates) {
+      expect(typeof c.domain).toBe("string");
+      expect(typeof c.code).toBe("string");
+      expect(typeof c.sourceId).toBe("string");
+      expect(typeof c.discoveredAt).toBe("string");
+    }
+  });
+
+  it("realistic contract fixture passes Basic-credential + secrets leak checks", async () => {
+    const db = makeDb();
+    const result = await makeAdapter(db).fetchAndParse({ domain: "shop.example" });
+    expectNoSecretsLeak(result);
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("FAKE-PARTNER-NOT-REAL");
+    expect(serialized).not.toContain("FAKE-ADVERTISER-NOT-REAL");
+    expect(serialized).not.toContain("FAKE-AUTH-TOKEN-NOT-REAL");
+    const cache = db
+      .prepare("SELECT candidates_json FROM source_cache WHERE source_id = ?")
+      .all("impact");
+    expectNoBasicCredLeak(JSON.stringify(cache));
   });
 });

@@ -63,6 +63,25 @@ export interface ProviderPipelineSpec {
   readonly config: { enabled?: unknown; apiKey?: unknown };
   /** Provider-specific endpoint/baseUrl + request shaping. */
   buildUrl(domain: string): string;
+  /**
+   * Provider-specific `Authorization` header value built from
+   * already-read config credentials. Omit for the default
+   * `Bearer ${apiKey}` (Awin parity — byte-identical when absent). Impact
+   * supplies HTTP Basic `base64(accountSid:authToken)`. Never built from
+   * client input; the credential never reaches the result/log/cache.
+   */
+  buildAuthHeader?(apiKey: string): string;
+  /**
+   * Provider-specific credential preflight, run immediately after the
+   * shared `apiKey` non-empty check and BEFORE domain validation, the
+   * cache-read short-circuit, and any fetch. A non-null code yields the
+   * same fail-closed early-return shape as `missing_api_key`
+   * (`fetched:false`, no cache read, `durationMs:0`). Omit when there is
+   * no extra credential to gate (Awin). Impact uses it to fail closed on a
+   * blank account SID even if a config object was constructed directly,
+   * bypassing `readImpactConfig`.
+   */
+  preflight?(): ProviderAdapterErrorCode | null;
   /** Provider-specific response envelope key (Awin offers vs Impact Promotions). */
   extractEnvelope(parsed: unknown): unknown[] | null;
   /**
@@ -204,6 +223,12 @@ export async function runProviderPipeline(
   if (typeof apiKey !== "string" || apiKey.length === 0) {
     return disabledResult(spec, "missing_api_key", 0);
   }
+  if (spec.preflight) {
+    const preflightCode = spec.preflight();
+    if (preflightCode !== null) {
+      return disabledResult(spec, preflightCode, 0);
+    }
+  }
 
   const domain = validateDomain(input.domain);
   if (!domain) {
@@ -290,7 +315,9 @@ export async function runProviderPipeline(
 
   const url = spec.buildUrl(domain);
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${apiKey}`,
+    Authorization: spec.buildAuthHeader
+      ? spec.buildAuthHeader(apiKey)
+      : `Bearer ${apiKey}`,
     Accept: "application/json",
   };
 
