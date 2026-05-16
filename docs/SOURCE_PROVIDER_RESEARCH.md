@@ -1,5 +1,42 @@
 # Salvare Source Provider Research — v0.31.0
 
+> **v0.47.0 status (2026-05-16):** Generic provider **pipeline execution
+> layer.** The structurally-identical Awin (v0.32/v0.33) and Impact
+> (v0.42) adapters are gutted to thin spec builders that delegate one
+> shared `runProviderPipeline`
+> ([`server/source-provider-pipeline.ts`](../server/source-provider-pipeline.ts)),
+> extracted **verbatim** from the live Awin adapter so observable
+> behavior is byte-identical. The pipeline runs the shared phases in
+> fixed order: config/key/`validateDomain` gate (early returns keep
+> `durationMs:0`/`fetched:false`/`cacheHit:false`) → runtime
+> `ensureCouponSource` → cache-read short-circuit **gated on
+> `spec.cacheSupported`** → `spec.buildUrl` + `Bearer` header → fetch
+> (`AbortError → timeout`, else `fetch_error`) → `mapHttpStatus` →
+> `JSON.parse` → `spec.extractEnvelope` → per-row `spec.mapRow`
+> (`skip`/`error`/`row`) → shared `pickAllowedRow` + `buildCandidate` →
+> one `recordSourceFetchAttempt` per fail/success path (same call
+> sites/counts as v0.46) → `upsertSourceCacheEntry` once on success.
+> Provider divergence is isolated to the injected `ProviderPipelineSpec`
+> (`config`, `buildUrl`, `extractEnvelope`, `mapRow`, `cacheSupported`);
+> per-provider deny-field redaction stays inside each `mapRow`. **Impact
+> reaches internal capability parity** — same cache-read short-circuit
+> (registry `cacheSupported: false → true`) and a `cacheHit` result
+> field — while staying registry-internal: `importSupported:false` /
+> `userExposed:false` unchanged, so `resolveProvider` still denies Impact
+> on preview+import (`not_user_exposed`) exactly as v0.45/v0.46. The
+> error-code unions are unified into one shared
+> `ProviderAdapterErrorCode` (`Awin`/`ImpactAdapterErrorCode` retained as
+> aliases — a type-only widening; `source-refresh.ts` `SAFE_REASONS`
+> untouched); the two identical status helpers fold into one shared
+> `providerStatusFromConfig`. Parity is locked by characterization pins
+> captured **pre-refactor** (Awin cache-fresh-hit, Awin cache-miss full
+> fetch, Awin `disabled`/`missing_api_key`/`parse_error` early returns,
+> Impact golden full-result) that stay green **unchanged** through the
+> rewrite, plus pipeline contract tests and a new Impact cache-read
+> parity suite. **Still out of scope:** Impact user exposure / import
+> wiring (v0.48/v0.49), schema bump (stays `"5"`), route-handler
+> changes, new providers, scraping, live HTTP in tests.
+>
 > **v0.46.0 status (2026-05-16):** **Generic provider import history /
 > audit trail.** New append-only `import_history` table
 > (`EXPECTED_SCHEMA_VERSION 4 → 5`; `CREATE TABLE IF NOT EXISTS` on next

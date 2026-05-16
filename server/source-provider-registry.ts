@@ -203,23 +203,21 @@ const IMPACT_METADATA = {
   sourceId: "impact",
   displayName: "impact.com Promotions API",
   sourceType: "api",
-  capabilities: { preview: true, importSupported: false, cacheSupported: false },
+  // v0.47.0 — Impact now participates in the shared cache-read
+  // short-circuit (internal capability only). `importSupported`/
+  // `userExposed` stay false: Impact remains unreachable on the user
+  // surface (v0.48/v0.49).
+  capabilities: { preview: true, importSupported: false, cacheSupported: true },
   userExposed: false,
 } as const satisfies ProviderDescriptorMetadata;
 
-function awinStatusFromConfig(config: SourceProviderConfig): ProviderStatusFlags {
-  if (config.enabled) {
-    return { featureEnabled: true, configured: true };
-  }
-  if (config.reason === "missing_api_key") {
-    return { featureEnabled: true, configured: false };
-  }
-  return { featureEnabled: false, configured: false };
-}
-
-function impactStatusFromConfig(
-  config: ImpactSourceProviderConfig,
-): ProviderStatusFlags {
+// v0.47.0 — both providers derive status identically
+// (enabled → (true,true); missing_api_key → (true,false); otherwise
+// (false,false)). One shared helper; no status-route behavior change.
+function providerStatusFromConfig(config: {
+  enabled: boolean;
+  reason?: string;
+}): ProviderStatusFlags {
   if (config.enabled) {
     return { featureEnabled: true, configured: true };
   }
@@ -236,7 +234,7 @@ function buildAwinDescriptor(): AwinProviderDescriptor {
       return readAwinConfig(env);
     },
     statusFor(env: NodeJS.ProcessEnv = process.env): ProviderStatusFlags {
-      return awinStatusFromConfig(readAwinConfig(env));
+      return providerStatusFromConfig(readAwinConfig(env));
     },
     createPreview(deps: AwinPreviewDeps): AwinPreviewClosure {
       return (input: AwinFetchInput) => {
@@ -264,7 +262,7 @@ function buildImpactDescriptor(): ImpactProviderDescriptor {
       return readImpactConfig(env);
     },
     statusFor(env: NodeJS.ProcessEnv = process.env): ProviderStatusFlags {
-      return impactStatusFromConfig(readImpactConfig(env));
+      return providerStatusFromConfig(readImpactConfig(env));
     },
     createPreview(deps: ImpactPreviewDeps): ImpactPreviewClosure {
       return (input: ImpactFetchInput) => {

@@ -118,16 +118,19 @@ describe("createProviderRegistry — descriptors and listing", () => {
     expect(awin!.userExposed).toBe(true);
   });
 
-  it("impact descriptor has limited capabilities and is NOT user-exposed", () => {
+  it("impact descriptor has cache parity but stays NOT user-exposed", () => {
     const registry = createProviderRegistry();
     const impact = registry.get("impact");
     expect(impact).not.toBeNull();
     expect(impact!.providerId).toBe("impact");
     expect(impact!.sourceId).toBe("impact");
+    // v0.47.0 — Impact gained internal cache-read parity
+    // (`cacheSupported: true`); `importSupported`/`userExposed` stay
+    // false (v0.48/v0.49).
     expect(impact!.capabilities).toEqual({
       preview: true,
       importSupported: false,
-      cacheSupported: false,
+      cacheSupported: true,
     });
     expect(impact!.userExposed).toBe(false);
   });
@@ -361,13 +364,13 @@ describe("createProviderRegistry — capability gating", () => {
     expect(exposed).toEqual(["awin"]);
   });
 
-  it("only awin advertises cacheSupported (v0.33 short-circuit) in v0.43", () => {
+  it("awin and impact both advertise cacheSupported (v0.47 parity)", () => {
     const registry = createProviderRegistry();
     const cacheCapable = registry
       .list()
       .filter((d) => d.capabilities.cacheSupported)
       .map((d) => d.providerId);
-    expect(cacheCapable).toEqual(["awin"]);
+    expect(cacheCapable).toEqual(["awin", "impact"]);
   });
 });
 

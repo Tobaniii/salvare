@@ -1,56 +1,57 @@
 // impact.com Promotions API provider adapter — second mocked provider
 // spike (v0.42.0).
 //
-// Mocked, feature-flagged, parser-only adapter. NO live HTTP, NO live API
-// calls in tests, NO automatic import into `coupon_codes`, NO admin
-// preview/import wiring, NO source-refresh CLI wiring, NO extension
-// behavior changes, NO ranking changes, NO export/import shape changes,
-// NO scheduler, NO scraping, and NO new dependencies.
+// As of v0.47.0 this is a THIN adapter: it owns only the Impact-specific
+// hooks (config shape, endpoint/URL shaping, the `{ Promotions } /
+// { promotions }` response envelope, the Impact deny-field set, and
+// per-row promo-code filtering) and delegates the shared
+// fetch/parse/log/cache scaffolding to `runProviderPipeline` in
+// `./source-provider-pipeline`. v0.47.0 brings Impact to INTERNAL
+// capability parity with Awin: it now participates in the shared
+// cache-read short-circuit (`cacheSupported: true`) and its result carries
+// the `cacheHit` field. Impact remains registry-internal — NOT
+// user-exposed, NOT import-wired (v0.48/v0.49).
 //
-// This is the second adapter spike that proves the trusted-source provider
-// architecture from v0.32 generalizes beyond Awin. It mirrors the Awin
-// module layout exactly:
-//  - disabled by default; missing/blank API key fails closed;
-//  - fetcher is injectable so tests never touch the network;
-//  - per-source `coupon_sources` row is registered at first call (runtime
-//    only — not seeded into bootstrap);
-//  - cache-write integration on success only; no cache-read short-circuit
-//    in v0.42 (deferred to a generic provider-registry milestone so this
-//    spike does not duplicate Awin-specific TTL logic). Fetch-log entries
-//    record outcome, status, error code, duration only — never headers,
-//    payload, or credentials;
-//  - candidates are normalized via the v0.30 validators; affiliate /
-//    tracking / payout / partner-id fields are stripped before any
-//    candidate is returned;
-//  - errors carry only short reason codes; the API key, the raw response
-//    body, the account SID, and any provider headers must never appear in
-//    the result.
+// Mocked, feature-flagged, parser-only. NO live HTTP, NO live API calls in
+// tests, NO automatic import into `coupon_codes`, NO admin preview/import
+// wiring, NO source-refresh CLI wiring, NO extension behavior changes, NO
+// ranking changes, NO export/import shape changes, NO scheduler, NO
+// scraping, and NO new dependencies.
 //
-// The exact impact.com Promotions API response shape used by the parser is
-// CONTRACT-STYLE and `[needs verification]` against developer.impact.com
-// once a publisher account exists. The real impact.com API authenticates
-// via HTTP Basic with `<accountSid>:<authToken>`; v0.42 uses a `Bearer`
-// header to match the existing Awin redaction-assertion surface. Live
-// activation must reconcile auth headers, credential format, and the
-// response envelope (e.g. `Promotions` vs `promotions`, field name case,
-// pagination) with the live API before production use.
+// Per docs/SOURCE_POLICY.md sections 4–6: disabled by default;
+// missing/blank API key fails closed; fetcher is injectable so tests never
+// touch the network; affiliate/tracking/payout/partner-id fields are
+// stripped before any candidate is returned; errors carry only short
+// reason codes; the API key, the raw response body, the account SID, and
+// any provider headers never appear in the result.
+//
+// The exact impact.com Promotions API response shape is CONTRACT-STYLE and
+// `[needs verification]` against developer.impact.com once a publisher
+// account exists. The real impact.com API authenticates via HTTP Basic
+// with `<accountSid>:<authToken>`; v0.42 uses a `Bearer` header to match
+// the existing Awin redaction-assertion surface. Live activation must
+// reconcile auth headers, credential format, and the response envelope
+// (e.g. `Promotions` vs `promotions`, field name case, pagination) with
+// the live API before production use.
 
 import type { Db } from "./db";
-import { ensureCouponSource } from "./db-sources";
 import {
-  recordSourceFetchAttempt,
-  upsertSourceCacheEntry,
-  type SourceFetchOutcome,
-} from "./db-source-cache";
-import {
-  buildCandidate,
-  pickAllowedRow,
   validateDomain,
   type RawRow,
   type SourceAdapterCandidate,
   type SourceAdapterError,
 } from "./source-adapters";
 import type { ImpactProviderConfig } from "./source-provider-config";
+import {
+  runProviderPipeline,
+  type ProviderPipelineSpec,
+  type RowMap,
+} from "./source-provider-pipeline";
+import type {
+  ProviderAdapterErrorCode,
+  ProviderAdapterResult,
+} from "./source-provider-types";
+import type { SourceFetchOutcome } from "./db-source-cache";
 
 const IMPACT_SOURCE_ID = "impact" as const;
 const IMPACT_SOURCE_NAME = "impact.com Promotions API";
@@ -125,15 +126,7 @@ const IMPACT_DENY_FIELDS: ReadonlySet<string> = new Set([
   "earningsperclick",
 ]);
 
-export type ImpactAdapterErrorCode =
-  | "disabled"
-  | "missing_api_key"
-  | "http_4xx"
-  | "http_5xx"
-  | "fetch_error"
-  | "timeout"
-  | "parse_error"
-  | "empty_response";
+export type ImpactAdapterErrorCode = ProviderAdapterErrorCode;
 
 export interface ImpactFetcherResponse {
   status: number;
@@ -174,6 +167,9 @@ export interface ImpactAdapterResult {
   candidates: SourceAdapterCandidate[];
   errors: SourceAdapterError[];
   fetched: boolean;
+  // v0.47.0 — Impact now participates in the shared cache-read
+  // short-circuit, so the result carries `cacheHit` like Awin's.
+  cacheHit: boolean;
   durationMs: number;
 }
 
@@ -256,13 +252,6 @@ const ALLOWED_RAW_KEYS: ReadonlySet<string> = new Set([
   "ValidTo",
   "validTo",
 ]);
-
-function defaultClock(): ImpactAdapterClock {
-  return {
-    nowIso: () => new Date().toISOString(),
-    nowMs: () => Date.now(),
-  };
-}
 
 function safeDomain(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -369,39 +358,6 @@ function buildImpactUrl(
   return `${root}/Promotions?advertiserDomain=${encodeURIComponent(domain)}`;
 }
 
-function makeCacheKey(domain: string, custom?: string): string {
-  if (custom !== undefined && custom.length > 0) return custom;
-  return `merchant:${domain}`;
-}
-
-async function sha256Hex(input: string): Promise<string> {
-  const { createHash } = await import("node:crypto");
-  return createHash("sha256").update(input, "utf8").digest("hex");
-}
-
-function mapHttpStatus(status: number): ImpactAdapterErrorCode | null {
-  if (status >= 200 && status < 300) return null;
-  if (status >= 400 && status < 500) return "http_4xx";
-  return "http_5xx";
-}
-
-function disabledResult(
-  errorCode: ImpactAdapterErrorCode,
-  durationMs: number,
-): ImpactAdapterResult {
-  return {
-    ok: false,
-    providerId: "impact",
-    sourceId: IMPACT_SOURCE_ID,
-    outcome: "error",
-    errorCode,
-    candidates: [],
-    errors: [],
-    fetched: false,
-    durationMs,
-  };
-}
-
 function extractPromotionsArray(parsed: unknown): unknown[] | null {
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     return null;
@@ -412,304 +368,68 @@ function extractPromotionsArray(parsed: unknown): unknown[] | null {
   return null;
 }
 
-export function createImpactAdapter(options: ImpactAdapterOptions): ImpactAdapter {
-  const clock = options.clock ?? defaultClock();
+function mapImpactRow(value: unknown): RowMap {
+  const allowed = promotionRowAllowed(value);
+  if (allowed === null) {
+    return { kind: "error", reason: "malformed_row" };
+  }
+  const promo = pickPromotionType(allowed);
+  if (promo === null || !PROMO_CODE_TYPES.has(promo)) {
+    // Silent drop of non-code promotions (cashback, free-shipping
+    // without code, brand awareness, etc.) per impact.com research.
+    return { kind: "skip" };
+  }
+  const advertiserDomain = pickImpactDomain(allowed);
+  if (advertiserDomain === null) {
+    return { kind: "error", reason: "invalid_domain" };
+  }
+  const row: RawRow = {};
+  row.domain = advertiserDomain;
+  const code = pickCode(allowed);
+  if (code !== undefined) row.code = code;
+  const label = pickLabel(allowed);
+  if (label !== undefined) row.label = label;
+  const expiresAt = pickExpiresAt(allowed);
+  if (expiresAt !== undefined) row.expiresAt = expiresAt;
+  return { kind: "row", row };
+}
+
+export function createImpactAdapter(
+  options: ImpactAdapterOptions,
+): ImpactAdapter {
   const baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
   const cacheTtlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  function ensureSourceRegistered(): boolean {
-    if (!options.db) return true;
-    try {
-      ensureCouponSource(
-        options.db,
-        {
-          id: IMPACT_SOURCE_ID,
-          name: IMPACT_SOURCE_NAME,
-          type: IMPACT_SOURCE_TYPE,
-          enabled: true,
-        },
-        clock.nowIso(),
-      );
-      return true;
-    } catch {
-      return false;
-    }
-  }
+  const spec: ProviderPipelineSpec = {
+    providerId: "impact",
+    sourceId: IMPACT_SOURCE_ID,
+    sourceName: IMPACT_SOURCE_NAME,
+    sourceType: IMPACT_SOURCE_TYPE,
+    cacheSupported: true,
+    config: options.config,
+    buildUrl: (domain: string) =>
+      buildImpactUrl(baseUrl, options.config.accountSid ?? null, domain),
+    extractEnvelope: extractPromotionsArray,
+    mapRow: mapImpactRow,
+  };
 
   return {
     providerId: "impact",
     sourceId: IMPACT_SOURCE_ID,
     async fetchAndParse(input: ImpactFetchInput): Promise<ImpactAdapterResult> {
-      const startedMs = clock.nowMs();
-
-      if (options.config.enabled !== true) {
-        return disabledResult("disabled", 0);
-      }
-      const apiKey = options.config.apiKey;
-      if (typeof apiKey !== "string" || apiKey.length === 0) {
-        return disabledResult("missing_api_key", 0);
-      }
-
-      const domain = validateDomain(input.domain);
-      if (!domain) {
-        return disabledResult("parse_error", 0);
-      }
-      const cacheKey = makeCacheKey(domain, input.cacheKey);
-
-      ensureSourceRegistered();
-
-      const url = buildImpactUrl(baseUrl, options.config.accountSid, domain);
-      const headers: Record<string, string> = {
-        Authorization: `Bearer ${apiKey}`,
-        Accept: "application/json",
-      };
-
-      let response: ImpactFetcherResponse;
-      try {
-        response = await options.fetcher(url, { headers, timeoutMs });
-      } catch (err) {
-        const errorCode: ImpactAdapterErrorCode =
-          err && typeof err === "object" && (err as { name?: string }).name === "AbortError"
-            ? "timeout"
-            : "fetch_error";
-        const durationMs = clock.nowMs() - startedMs;
-        if (options.db) {
-          try {
-            recordSourceFetchAttempt(
-              options.db,
-              {
-                sourceId: IMPACT_SOURCE_ID,
-                cacheKey,
-                outcome: "error",
-                statusCode: null,
-                errorCode,
-                durationMs,
-              },
-              clock.nowIso(),
-            );
-          } catch {
-            /* swallow — adapter must not throw on log failure */
-          }
-        }
-        return {
-          ok: false,
-          providerId: "impact",
-          sourceId: IMPACT_SOURCE_ID,
-          outcome: "error",
-          errorCode,
-          candidates: [],
-          errors: [],
-          fetched: true,
-          durationMs,
-        };
-      }
-
-      const httpErr = mapHttpStatus(response.status);
-      if (httpErr !== null) {
-        const durationMs = clock.nowMs() - startedMs;
-        if (options.db) {
-          try {
-            recordSourceFetchAttempt(
-              options.db,
-              {
-                sourceId: IMPACT_SOURCE_ID,
-                cacheKey,
-                outcome: "error",
-                statusCode: response.status,
-                errorCode: httpErr,
-                durationMs,
-              },
-              clock.nowIso(),
-            );
-          } catch {
-            /* swallow */
-          }
-        }
-        return {
-          ok: false,
-          providerId: "impact",
-          sourceId: IMPACT_SOURCE_ID,
-          outcome: "error",
-          errorCode: httpErr,
-          candidates: [],
-          errors: [],
-          fetched: true,
-          durationMs,
-        };
-      }
-
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(response.body);
-      } catch {
-        const durationMs = clock.nowMs() - startedMs;
-        if (options.db) {
-          try {
-            recordSourceFetchAttempt(
-              options.db,
-              {
-                sourceId: IMPACT_SOURCE_ID,
-                cacheKey,
-                outcome: "error",
-                statusCode: response.status,
-                errorCode: "parse_error",
-                durationMs,
-              },
-              clock.nowIso(),
-            );
-          } catch {
-            /* swallow */
-          }
-        }
-        return {
-          ok: false,
-          providerId: "impact",
-          sourceId: IMPACT_SOURCE_ID,
-          outcome: "error",
-          errorCode: "parse_error",
-          candidates: [],
-          errors: [],
-          fetched: true,
-          durationMs,
-        };
-      }
-
-      const promotions = extractPromotionsArray(parsed);
-      if (promotions === null) {
-        const durationMs = clock.nowMs() - startedMs;
-        if (options.db) {
-          try {
-            recordSourceFetchAttempt(
-              options.db,
-              {
-                sourceId: IMPACT_SOURCE_ID,
-                cacheKey,
-                outcome: "error",
-                statusCode: response.status,
-                errorCode: "parse_error",
-                durationMs,
-              },
-              clock.nowIso(),
-            );
-          } catch {
-            /* swallow */
-          }
-        }
-        return {
-          ok: false,
-          providerId: "impact",
-          sourceId: IMPACT_SOURCE_ID,
-          outcome: "error",
-          errorCode: "parse_error",
-          candidates: [],
-          errors: [],
-          fetched: true,
-          durationMs,
-        };
-      }
-
-      const errors: SourceAdapterError[] = [];
-      const candidates: SourceAdapterCandidate[] = [];
-      const seen = new Set<string>();
-      promotions.forEach((promotion, index) => {
-        const allowed = promotionRowAllowed(promotion);
-        if (allowed === null) {
-          errors.push({ index, reason: "malformed_row" });
-          return;
-        }
-        const promo = pickPromotionType(allowed);
-        if (promo === null || !PROMO_CODE_TYPES.has(promo)) {
-          // Silent drop of non-code promotions (cashback, free-shipping
-          // without code, brand awareness, etc.) per impact.com research.
-          return;
-        }
-        const advertiserDomain = pickImpactDomain(allowed);
-        if (advertiserDomain === null) {
-          errors.push({ index, reason: "invalid_domain" });
-          return;
-        }
-        const row: RawRow = {};
-        row.domain = advertiserDomain;
-        const code = pickCode(allowed);
-        if (code !== undefined) row.code = code;
-        const label = pickLabel(allowed);
-        if (label !== undefined) row.label = label;
-        const expiresAt = pickExpiresAt(allowed);
-        if (expiresAt !== undefined) row.expiresAt = expiresAt;
-        const safe = pickAllowedRow(row);
-        if (safe === null) {
-          errors.push({ index, reason: "malformed_row" });
-          return;
-        }
-        const candidate = buildCandidate(
-          safe,
-          index,
-          IMPACT_SOURCE_ID,
-          clock.nowIso,
-          seen,
-          errors,
-        );
-        if (candidate !== null) candidates.push(candidate);
-      });
-
-      const durationMs = clock.nowMs() - startedMs;
-      const outcome: SourceFetchOutcome = candidates.length > 0 ? "ok" : "empty";
-
-      if (options.db) {
-        try {
-          recordSourceFetchAttempt(
-            options.db,
-            {
-              sourceId: IMPACT_SOURCE_ID,
-              cacheKey,
-              outcome,
-              statusCode: response.status,
-              errorCode: null,
-              durationMs,
-            },
-            clock.nowIso(),
-          );
-        } catch {
-          /* swallow */
-        }
-        try {
-          const fetchedAt = clock.nowIso();
-          const expiresAt = new Date(clock.nowMs() + cacheTtlMs).toISOString();
-          const bodySha = await sha256Hex(response.body);
-          const candidatesJson = JSON.stringify(candidates);
-          const candidatesPayload =
-            Buffer.byteLength(candidatesJson, "utf8") <= 32 * 1024
-              ? candidatesJson
-              : null;
-          upsertSourceCacheEntry(options.db, {
-            sourceId: IMPACT_SOURCE_ID,
-            cacheKey,
-            fetchedAt,
-            expiresAt,
-            status: outcome === "ok" ? "ok" : "empty",
-            bodySha256: bodySha,
-            metadata: {
-              offer_count: candidates.length,
-              error_count: errors.length,
-            },
-            candidatesJson: candidatesPayload,
-          });
-        } catch {
-          /* swallow */
-        }
-      }
-
-      return {
-        ok: true,
-        providerId: "impact",
-        sourceId: IMPACT_SOURCE_ID,
-        outcome,
-        candidates,
-        errors,
-        fetched: true,
-        durationMs,
-      };
+      const result: ProviderAdapterResult = await runProviderPipeline(
+        spec,
+        {
+          db: options.db,
+          fetcher: options.fetcher,
+          clock: options.clock,
+          timeoutMs,
+          cacheTtlMs,
+        },
+        input,
+      );
+      return result as ImpactAdapterResult;
     },
   };
 }

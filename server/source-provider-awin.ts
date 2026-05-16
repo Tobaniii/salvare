@@ -1,54 +1,46 @@
 // Awin Offers API provider adapter — first real-provider spike (v0.32.0).
 //
-// Mocked, feature-flagged, parser-only adapter. NO live HTTP, NO live API
-// calls in tests, NO automatic import into `coupon_codes`, NO extension
-// behavior changes, NO ranking changes, NO export/import shape changes.
+// As of v0.47.0 this is a THIN adapter: it owns only the Awin-specific
+// hooks (config shape, endpoint/URL shaping, the `{ offers }` response
+// envelope, the Awin deny-field set, and per-row voucher filtering) and
+// delegates the shared fetch/parse/log/cache scaffolding to
+// `runProviderPipeline` in `./source-provider-pipeline`. Observable
+// behavior is byte-identical to v0.46: same candidate order, per-row
+// error sequence, fetch-log call sites/counts, cache-write signature, and
+// the v0.33 cache-read short-circuit.
 //
-// Per docs/SOURCE_POLICY.md sections 4–6 and the v0.32.0 implementation
-// preview in docs/SOURCE_PROVIDER_RESEARCH.md §5:
-//  - disabled by default; missing/blank API key fails closed;
-//  - fetcher is injectable so tests never touch the network;
-//  - per-source `coupon_sources` row is registered at first call (runtime
-//    only — not seeded into bootstrap);
-//  - cache-write integration on success, no cache-read short-circuit yet
-//    (v0.33 follow-up). Fetch-log entries record outcome, status, error
-//    code, duration only — never headers, payload, or credentials;
-//  - candidates are normalized via the v0.30 validators; affiliate /
-//    tracking link fields are stripped before any candidate is returned;
-//  - errors carry only short reason codes; the API key, the raw response
-//    body, and any provider headers must never appear in the result.
+// Mocked, feature-flagged, parser-only. NO live HTTP, NO live API calls in
+// tests, NO automatic import into `coupon_codes`, NO extension behavior
+// changes, NO ranking changes, NO export/import shape changes.
+//
+// Per docs/SOURCE_POLICY.md sections 4–6: disabled by default;
+// missing/blank API key fails closed; fetcher is injectable so tests never
+// touch the network; affiliate/tracking fields are stripped before any
+// candidate is returned; errors carry only short reason codes; the API
+// key, the raw response body, and any provider headers never appear in the
+// result.
 //
 // The exact Awin Offers API response shape is `[needs verification]`
 // against current developer.awin.com docs once a publisher account exists.
-// The parser below assumes a documented JSON envelope of:
-//   { offers: [ { merchantUrl, code, title|description, endDate,
-//                 promotionType, ... } ] }
-// — fields beyond the documented allowlist are dropped silently. A future
-// milestone with real account access must reconcile the parser with the
-// live response and add a regression fixture captured from a real call.
 
 import type { Db } from "./db";
-import { ensureCouponSource } from "./db-sources";
 import {
-  getSourceCacheEntry,
-  recordSourceFetchAttempt,
-  upsertSourceCacheEntry,
-  type SourceFetchOutcome,
-} from "./db-source-cache";
-import {
-  buildCandidate,
-  pickAllowedRow,
-  validateConfidence,
   validateDomain,
-  validateExpiresAt,
-  validateLabel,
-  validateSourceUrl,
-  validateCode,
   type RawRow,
   type SourceAdapterCandidate,
   type SourceAdapterError,
 } from "./source-adapters";
 import type { AwinProviderConfig } from "./source-provider-config";
+import {
+  runProviderPipeline,
+  type ProviderPipelineSpec,
+  type RowMap,
+} from "./source-provider-pipeline";
+import type {
+  ProviderAdapterErrorCode,
+  ProviderAdapterResult,
+} from "./source-provider-types";
+import type { SourceFetchOutcome } from "./db-source-cache";
 
 const AWIN_SOURCE_ID = "awin" as const;
 const AWIN_SOURCE_NAME = "Awin Offers API";
@@ -89,18 +81,7 @@ const AWIN_DENY_FIELDS: ReadonlySet<string> = new Set([
   "advertiserid",
 ]);
 
-export type AwinAdapterErrorCode =
-  | "disabled"
-  | "missing_api_key"
-  | "rate_limited"
-  | "cache_fresh"
-  | "unknown_source"
-  | "http_4xx"
-  | "http_5xx"
-  | "fetch_error"
-  | "timeout"
-  | "parse_error"
-  | "empty_response";
+export type AwinAdapterErrorCode = ProviderAdapterErrorCode;
 
 export interface AwinFetcherResponse {
   status: number;
@@ -163,13 +144,6 @@ interface AwinOfferRowRaw {
   description?: unknown;
   endDate?: unknown;
   validTo?: unknown;
-}
-
-function defaultClock(): AwinAdapterClock {
-  return {
-    nowIso: () => new Date().toISOString(),
-    nowMs: () => Date.now(),
-  };
 }
 
 function safeDomain(value: unknown): string | null {
@@ -258,477 +232,73 @@ function buildAwinUrl(
   return `${root}/offers?merchantDomain=${encodeURIComponent(domain)}`;
 }
 
-function makeCacheKey(domain: string, custom?: string): string {
-  if (custom !== undefined && custom.length > 0) return custom;
-  return `merchant:${domain}`;
-}
-
-async function sha256Hex(input: string): Promise<string> {
-  const { createHash } = await import("node:crypto");
-  return createHash("sha256").update(input, "utf8").digest("hex");
-}
-
-function mapHttpStatus(status: number): AwinAdapterErrorCode | null {
-  if (status >= 200 && status < 300) return null;
-  if (status >= 400 && status < 500) return "http_4xx";
-  return "http_5xx";
-}
-
-function disabledResult(
-  errorCode: AwinAdapterErrorCode,
-  durationMs: number,
-): AwinAdapterResult {
-  return {
-    ok: false,
-    providerId: "awin",
-    sourceId: AWIN_SOURCE_ID,
-    outcome: "error",
-    errorCode,
-    candidates: [],
-    errors: [],
-    fetched: false,
-    cacheHit: false,
-    durationMs,
-  };
-}
-
-// Strict re-validation of a single cached candidate row. The cache is
-// intentionally treated as untrusted on read — even though our writers only
-// persist normalized candidates, on-disk state may have been corrupted or
-// edited locally. Any failure causes the caller to ignore the cache and
-// fall through to a fresh fetch.
-function revalidateCachedCandidate(
-  raw: unknown,
-  sourceId: string,
-  seen: Set<string>,
-): SourceAdapterCandidate | null {
-  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const obj = raw as Record<string, unknown>;
-  if (obj.sourceId !== sourceId) return null;
-  const domain = validateDomain(obj.domain);
-  if (domain === null) return null;
-  const code = validateCode(obj.code);
-  if (code === null) return null;
-  if (typeof obj.discoveredAt !== "string" || obj.discoveredAt.length === 0) {
-    return null;
+function extractAwinEnvelope(parsed: unknown): unknown[] | null {
+  if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+    const env = parsed as { offers?: unknown };
+    if (Array.isArray(env.offers)) return env.offers;
   }
-  const label = validateLabel(obj.label);
-  if (!label.ok) return null;
-  const expiresAt = validateExpiresAt(obj.expiresAt);
-  if (!expiresAt.ok) return null;
-  const sourceUrl = validateSourceUrl(obj.sourceUrl);
-  if (!sourceUrl.ok) return null;
-  const confidence = validateConfidence(obj.confidence);
-  if (!confidence.ok) return null;
-  const dedupeKey = `${sourceId}|${domain}|${code}`;
-  if (seen.has(dedupeKey)) return null;
-  seen.add(dedupeKey);
-  const out: SourceAdapterCandidate = {
-    domain,
-    code,
-    sourceId,
-    discoveredAt: obj.discoveredAt,
-  };
-  if (label.value !== undefined) out.label = label.value;
-  if (expiresAt.value !== undefined) out.expiresAt = expiresAt.value;
-  if (sourceUrl.value !== undefined) out.sourceUrl = sourceUrl.value;
-  if (confidence.value !== undefined) out.confidence = confidence.value;
-  return out;
+  return null;
 }
 
-function parseCachedCandidates(
-  candidatesJson: string | null,
-  sourceId: string,
-): SourceAdapterCandidate[] | null {
-  if (candidatesJson === null) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(candidatesJson);
-  } catch {
-    return null;
+function mapAwinRow(value: unknown): RowMap {
+  const allowed = offerRowAllowed(value);
+  if (allowed === null) {
+    return { kind: "error", reason: "malformed_row" };
   }
-  if (!Array.isArray(parsed)) return null;
-  const seen = new Set<string>();
-  const out: SourceAdapterCandidate[] = [];
-  for (const row of parsed) {
-    const c = revalidateCachedCandidate(row, sourceId, seen);
-    if (c === null) return null;
-    out.push(c);
+  const promo = pickPromotionType(allowed);
+  if (promo === null || !VOUCHER_PROMOTION_TYPES.has(promo)) {
+    // Silent drop of non-voucher offers per research §5.5.
+    return { kind: "skip" };
   }
-  return out;
+  const merchantDomain = pickAwinDomain(allowed);
+  if (merchantDomain === null) {
+    return { kind: "error", reason: "invalid_domain" };
+  }
+  const row: RawRow = {};
+  row.domain = merchantDomain;
+  const code = pickCode(allowed);
+  if (code !== undefined) row.code = code;
+  const label = pickLabel(allowed);
+  if (label !== undefined) row.label = label;
+  const expiresAt = pickExpiresAt(allowed);
+  if (expiresAt !== undefined) row.expiresAt = expiresAt;
+  return { kind: "row", row };
 }
 
 export function createAwinAdapter(options: AwinAdapterOptions): AwinAdapter {
-  const clock = options.clock ?? defaultClock();
   const baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
   const cacheTtlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  function ensureSourceRegistered(): boolean {
-    if (!options.db) return true;
-    try {
-      ensureCouponSource(
-        options.db,
-        {
-          id: AWIN_SOURCE_ID,
-          name: AWIN_SOURCE_NAME,
-          type: AWIN_SOURCE_TYPE,
-          enabled: true,
-        },
-        clock.nowIso(),
-      );
-      return true;
-    } catch {
-      return false;
-    }
-  }
+  const spec: ProviderPipelineSpec = {
+    providerId: "awin",
+    sourceId: AWIN_SOURCE_ID,
+    sourceName: AWIN_SOURCE_NAME,
+    sourceType: AWIN_SOURCE_TYPE,
+    cacheSupported: true,
+    config: options.config,
+    buildUrl: (domain: string) =>
+      buildAwinUrl(baseUrl, options.config.publisherId ?? null, domain),
+    extractEnvelope: extractAwinEnvelope,
+    mapRow: mapAwinRow,
+  };
 
   return {
     providerId: "awin",
     sourceId: AWIN_SOURCE_ID,
     async fetchAndParse(input: AwinFetchInput): Promise<AwinAdapterResult> {
-      const startedMs = clock.nowMs();
-
-      if (options.config.enabled !== true) {
-        return disabledResult("disabled", 0);
-      }
-      const apiKey = options.config.apiKey;
-      if (typeof apiKey !== "string" || apiKey.length === 0) {
-        return disabledResult("missing_api_key", 0);
-      }
-
-      const domain = validateDomain(input.domain);
-      if (!domain) {
-        return disabledResult("parse_error", 0);
-      }
-      const cacheKey = makeCacheKey(domain, input.cacheKey);
-
-      ensureSourceRegistered();
-
-      // Cache-read short-circuit (v0.33.0). A fresh `ok`-status cache row
-      // with a parseable, re-validatable candidate array is returned
-      // without invoking the fetcher. Any failure here — missing column,
-      // expired entry, corrupt JSON, row-level revalidation failure —
-      // falls through to a fresh fetch. The cache is treated as untrusted
-      // input on read even though we own the writer.
-      if (options.db) {
-        try {
-          const lookup = getSourceCacheEntry(
-            options.db,
-            AWIN_SOURCE_ID,
-            cacheKey,
-            clock.nowIso(),
-          );
-          if (
-            lookup &&
-            lookup.fresh &&
-            lookup.entry.status === "ok" &&
-            lookup.entry.candidatesJson !== null
-          ) {
-            const cached = parseCachedCandidates(
-              lookup.entry.candidatesJson,
-              AWIN_SOURCE_ID,
-            );
-            if (cached !== null) {
-              const durationMs = clock.nowMs() - startedMs;
-              try {
-                recordSourceFetchAttempt(
-                  options.db,
-                  {
-                    sourceId: AWIN_SOURCE_ID,
-                    cacheKey,
-                    outcome: "cache_hit",
-                    statusCode: null,
-                    errorCode: null,
-                    durationMs,
-                  },
-                  clock.nowIso(),
-                );
-              } catch {
-                /* swallow */
-              }
-              return {
-                ok: true,
-                providerId: "awin",
-                sourceId: AWIN_SOURCE_ID,
-                outcome: "cache_hit",
-                candidates: cached,
-                errors: [],
-                fetched: false,
-                cacheHit: true,
-                durationMs,
-              };
-            }
-          }
-        } catch {
-          /* corrupt cache or schema mismatch — fall through to fetch */
-        }
-      }
-
-      const url = buildAwinUrl(baseUrl, options.config.publisherId, domain);
-      const headers: Record<string, string> = {
-        Authorization: `Bearer ${apiKey}`,
-        Accept: "application/json",
-      };
-
-      let response: AwinFetcherResponse;
-      try {
-        response = await options.fetcher(url, { headers, timeoutMs });
-      } catch (err) {
-        const errorCode: AwinAdapterErrorCode =
-          err && typeof err === "object" && (err as { name?: string }).name === "AbortError"
-            ? "timeout"
-            : "fetch_error";
-        const durationMs = clock.nowMs() - startedMs;
-        if (options.db) {
-          try {
-            recordSourceFetchAttempt(
-              options.db,
-              {
-                sourceId: AWIN_SOURCE_ID,
-                cacheKey,
-                outcome: "error",
-                statusCode: null,
-                errorCode,
-                durationMs,
-              },
-              clock.nowIso(),
-            );
-          } catch {
-            /* swallow — adapter must not throw on log failure */
-          }
-        }
-        return {
-          ok: false,
-          providerId: "awin",
-          sourceId: AWIN_SOURCE_ID,
-          outcome: "error",
-          errorCode,
-          candidates: [],
-          errors: [],
-          fetched: true,
-          cacheHit: false,
-          durationMs,
-        };
-      }
-
-      const httpErr = mapHttpStatus(response.status);
-      if (httpErr !== null) {
-        const durationMs = clock.nowMs() - startedMs;
-        if (options.db) {
-          try {
-            recordSourceFetchAttempt(
-              options.db,
-              {
-                sourceId: AWIN_SOURCE_ID,
-                cacheKey,
-                outcome: "error",
-                statusCode: response.status,
-                errorCode: httpErr,
-                durationMs,
-              },
-              clock.nowIso(),
-            );
-          } catch {
-            /* swallow */
-          }
-        }
-        return {
-          ok: false,
-          providerId: "awin",
-          sourceId: AWIN_SOURCE_ID,
-          outcome: "error",
-          errorCode: httpErr,
-          candidates: [],
-          errors: [],
-          fetched: true,
-          cacheHit: false,
-          durationMs,
-        };
-      }
-
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(response.body);
-      } catch {
-        const durationMs = clock.nowMs() - startedMs;
-        if (options.db) {
-          try {
-            recordSourceFetchAttempt(
-              options.db,
-              {
-                sourceId: AWIN_SOURCE_ID,
-                cacheKey,
-                outcome: "error",
-                statusCode: response.status,
-                errorCode: "parse_error",
-                durationMs,
-              },
-              clock.nowIso(),
-            );
-          } catch {
-            /* swallow */
-          }
-        }
-        return {
-          ok: false,
-          providerId: "awin",
-          sourceId: AWIN_SOURCE_ID,
-          outcome: "error",
-          errorCode: "parse_error",
-          candidates: [],
-          errors: [],
-          fetched: true,
-          cacheHit: false,
-          durationMs,
-        };
-      }
-
-      let offers: unknown[] | null = null;
-      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-        const env = parsed as { offers?: unknown };
-        if (Array.isArray(env.offers)) offers = env.offers;
-      }
-      if (offers === null) {
-        const durationMs = clock.nowMs() - startedMs;
-        if (options.db) {
-          try {
-            recordSourceFetchAttempt(
-              options.db,
-              {
-                sourceId: AWIN_SOURCE_ID,
-                cacheKey,
-                outcome: "error",
-                statusCode: response.status,
-                errorCode: "parse_error",
-                durationMs,
-              },
-              clock.nowIso(),
-            );
-          } catch {
-            /* swallow */
-          }
-        }
-        return {
-          ok: false,
-          providerId: "awin",
-          sourceId: AWIN_SOURCE_ID,
-          outcome: "error",
-          errorCode: "parse_error",
-          candidates: [],
-          errors: [],
-          fetched: true,
-          cacheHit: false,
-          durationMs,
-        };
-      }
-
-      const errors: SourceAdapterError[] = [];
-      const candidates: SourceAdapterCandidate[] = [];
-      const seen = new Set<string>();
-      offers.forEach((offer, index) => {
-        const allowed = offerRowAllowed(offer);
-        if (allowed === null) {
-          errors.push({ index, reason: "malformed_row" });
-          return;
-        }
-        const promo = pickPromotionType(allowed);
-        if (promo === null || !VOUCHER_PROMOTION_TYPES.has(promo)) {
-          // Silent drop of non-voucher offers per research §5.5.
-          return;
-        }
-        const merchantDomain = pickAwinDomain(allowed);
-        if (merchantDomain === null) {
-          errors.push({ index, reason: "invalid_domain" });
-          return;
-        }
-        const row: RawRow = {};
-        row.domain = merchantDomain;
-        const code = pickCode(allowed);
-        if (code !== undefined) row.code = code;
-        const label = pickLabel(allowed);
-        if (label !== undefined) row.label = label;
-        const expiresAt = pickExpiresAt(allowed);
-        if (expiresAt !== undefined) row.expiresAt = expiresAt;
-        // Re-pick through the standard allowlist to ensure no unknown
-        // affiliate fields slip through into the candidate.
-        const safe = pickAllowedRow(row);
-        if (safe === null) {
-          errors.push({ index, reason: "malformed_row" });
-          return;
-        }
-        const candidate = buildCandidate(
-          safe,
-          index,
-          AWIN_SOURCE_ID,
-          clock.nowIso,
-          seen,
-          errors,
-        );
-        if (candidate !== null) candidates.push(candidate);
-      });
-
-      const durationMs = clock.nowMs() - startedMs;
-      const outcome: SourceFetchOutcome = candidates.length > 0 ? "ok" : "empty";
-
-      if (options.db) {
-        try {
-          recordSourceFetchAttempt(
-            options.db,
-            {
-              sourceId: AWIN_SOURCE_ID,
-              cacheKey,
-              outcome,
-              statusCode: response.status,
-              errorCode: null,
-              durationMs,
-            },
-            clock.nowIso(),
-          );
-        } catch {
-          /* swallow */
-        }
-        try {
-          const fetchedAt = clock.nowIso();
-          const expiresAt = new Date(clock.nowMs() + cacheTtlMs).toISOString();
-          const bodySha = await sha256Hex(response.body);
-          // Serialize the normalized candidate array. Skip the column write
-          // if it overflows the bound — the next call will re-fetch, but
-          // that is preferable to a silently oversized cache row.
-          const candidatesJson = JSON.stringify(candidates);
-          const candidatesPayload =
-            Buffer.byteLength(candidatesJson, "utf8") <= 32 * 1024
-              ? candidatesJson
-              : null;
-          upsertSourceCacheEntry(options.db, {
-            sourceId: AWIN_SOURCE_ID,
-            cacheKey,
-            fetchedAt,
-            expiresAt,
-            status: outcome === "ok" ? "ok" : "empty",
-            bodySha256: bodySha,
-            metadata: {
-              offer_count: candidates.length,
-              error_count: errors.length,
-            },
-            candidatesJson: candidatesPayload,
-          });
-        } catch {
-          /* swallow */
-        }
-      }
-
-      return {
-        ok: true,
-        providerId: "awin",
-        sourceId: AWIN_SOURCE_ID,
-        outcome,
-        candidates,
-        errors,
-        fetched: true,
-        cacheHit: false,
-        durationMs,
-      };
+      const result: ProviderAdapterResult = await runProviderPipeline(
+        spec,
+        {
+          db: options.db,
+          fetcher: options.fetcher,
+          clock: options.clock,
+          timeoutMs,
+          cacheTtlMs,
+        },
+        input,
+      );
+      return result as AwinAdapterResult;
     },
   };
 }
