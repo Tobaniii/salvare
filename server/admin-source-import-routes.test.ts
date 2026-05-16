@@ -555,3 +555,138 @@ describe("POST /admin/source-import/awin — does not import mismatched-domain c
     expect(otherCodes.map((r) => r.code)).toEqual(["OTHER15"]);
   });
 });
+
+describe("POST /admin/source-import/:providerId — generic routing (v0.45.0)", () => {
+  let h: Harness;
+  let dbRef!: Db;
+  beforeAll(async () => {
+    const db = openDatabase(":memory:");
+    upsertCouponCodes(db, "shop.example", ["EXISTING1"]);
+    const preview = buildFromAdapter(
+      db,
+      enabledConfig(),
+      fixtureFetcher(loadFixture("awin-offers-ok.json")),
+    );
+    h = await startHarness(preview, null, db);
+    dbRef = db;
+  });
+  afterAll(async () => stopHarness(h));
+
+  it("awin import succeeds via :providerId with the v0.44 response key set", async () => {
+    const res = await fetch(`${h.baseUrl}/admin/source-import/awin`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: "shop.example", confirm: "IMPORT" }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.provider).toBe("awin");
+    expect(Object.keys(body).sort()).toEqual(
+      [
+        "ok",
+        "provider",
+        "domain",
+        "candidatesAccepted",
+        "codesImported",
+        "provenanceRecorded",
+        "rejected",
+        "errors",
+      ].sort(),
+    );
+  });
+
+  it("importProviderCandidates is driven by the resolved descriptor (sourceId + displayName), not a constant", async () => {
+    // The awin coupon_sources row name must be the registry descriptor's
+    // displayName ("Awin Offers API"), proving the import path no longer
+    // uses the old AWIN_SOURCE_NAME = "Awin" constant.
+    const srcRow = dbRef
+      .prepare(`SELECT id, name FROM coupon_sources WHERE id = 'awin'`)
+      .get() as { id: string; name: string } | undefined;
+    expect(srcRow).toBeDefined();
+    expect(srcRow!.id).toBe("awin");
+    expect(srcRow!.name).toBe("Awin Offers API");
+    // Provenance rows are written under the resolved descriptor's sourceId.
+    const awinProv = (
+      dbRef
+        .prepare(
+          "SELECT COUNT(*) AS n FROM coupon_code_sources WHERE source_id = 'awin'",
+        )
+        .get() as { n: number }
+    ).n;
+    expect(awinProv).toBeGreaterThan(0);
+    // No provenance smuggled under any other/bogus source id.
+    const nonAwin = (
+      dbRef
+        .prepare(
+          `SELECT COUNT(*) AS n FROM coupon_code_sources
+             WHERE source_id NOT IN ('awin','admin','seed','import')`,
+        )
+        .get() as { n: number }
+    ).n;
+    expect(nonAwin).toBe(0);
+  });
+
+  it("impact import is denied on the user surface and writes nothing", async () => {
+    const before = counts(dbRef);
+    const res = await fetch(`${h.baseUrl}/admin/source-import/impact`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: "shop.example", confirm: "IMPORT" }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    // userExposed:false is checked before capability, so the deny reason is
+    // not_user_exposed — impact is unreachable via the user surface.
+    expect(body.reason).toBe("not_user_exposed");
+    expect(body.provider).toBe("impact");
+    expect(body.codesImported).toBe(0);
+    expect(body.disabled).toBeUndefined();
+    const raw = JSON.stringify(body);
+    expect(raw).not.toContain("impact.com");
+    const after = counts(dbRef);
+    expect(after.coupons).toBe(before.coupons);
+    expect(after.codeSources).toBe(before.codeSources);
+    const impactProv = (
+      dbRef
+        .prepare(
+          "SELECT COUNT(*) AS n FROM coupon_code_sources WHERE source_id = 'impact'",
+        )
+        .get() as { n: number }
+    ).n;
+    expect(impactProv).toBe(0);
+  });
+
+  it("unknown provider fails closed with no DB write and no stack/raw", async () => {
+    const before = counts(dbRef);
+    const res = await fetch(`${h.baseUrl}/admin/source-import/bogus`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: "shop.example", confirm: "IMPORT" }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.reason).toBe("unknown_provider");
+    expect(body.provider).toBe("bogus");
+    const raw = JSON.stringify(body);
+    expect(raw).not.toContain("Error");
+    expect(raw).not.toContain("stack");
+    const after = counts(dbRef);
+    expect(after.coupons).toBe(before.coupons);
+    expect(after.codeSources).toBe(before.codeSources);
+  });
+
+  it("illegal-charset segment returns 400 and never echoes the raw id", async () => {
+    const res = await fetch(`${h.baseUrl}/admin/source-import/aw!n`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: "shop.example", confirm: "IMPORT" }),
+    });
+    expect(res.status).toBe(400);
+    const raw = await res.text();
+    expect(JSON.parse(raw)).toEqual({ ok: false, error: "invalid provider" });
+    expect(raw).not.toContain("aw!n");
+  });
+});

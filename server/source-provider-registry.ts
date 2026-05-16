@@ -55,6 +55,10 @@ import {
   type ImpactFetcher,
   type ImpactFetchInput,
 } from "./source-provider-impact";
+import type {
+  ProviderPreviewClosure,
+  ProviderPreviewDeps,
+} from "./source-provider-types";
 
 export type ProviderId = "awin" | "impact";
 
@@ -134,9 +138,38 @@ export type AnyProviderDescriptor =
   | AwinProviderDescriptor
   | ImpactProviderDescriptor;
 
+export type ResolvePurpose = "preview" | "import";
+
+export type ResolveDenyReason =
+  | "unknown_provider"
+  | "not_user_exposed"
+  | "capability_unsupported";
+
+export type ResolveProviderResult =
+  | {
+      ok: true;
+      descriptor: ProviderDescriptorMetadata;
+      closure: ProviderPreviewClosure;
+    }
+  | { ok: false; reason: ResolveDenyReason };
+
 export interface ProviderRegistry {
   /** Safe-to-serialize metadata-only listing for diagnostics and tests. */
   list(): ProviderDescriptorMetadata[];
+  /**
+   * Resolve a provider for a user-exposed preview/import call. Fail-closed
+   * (never throws raw): unknown id -> `unknown_provider`; a registry-internal
+   * provider (`userExposed !== true`) -> `not_user_exposed`; a provider that
+   * lacks the capability for `purpose` -> `capability_unsupported`. On
+   * success returns the registry-authoritative metadata descriptor plus a
+   * generic preview closure. Impact (`userExposed:false`) is denied for
+   * BOTH purposes, so generic routing cannot reach it via the user surface.
+   */
+  resolveProvider(
+    providerId: string,
+    purpose: ResolvePurpose,
+    deps: ProviderPreviewDeps,
+  ): ResolveProviderResult;
   /** Typed lookup. Unknown ids return `null` (fail closed). */
   get(providerId: string): AnyProviderDescriptor | null;
   /** Typed awin accessor. */
@@ -272,6 +305,45 @@ export function createProviderRegistry(): ProviderRegistry {
   const registry: ProviderRegistry = {
     list(): ProviderDescriptorMetadata[] {
       return [metadataOnly(awin), metadataOnly(impact)];
+    },
+    resolveProvider(
+      providerId: string,
+      purpose: ResolvePurpose,
+      deps: ProviderPreviewDeps,
+    ): ResolveProviderResult {
+      const descriptor =
+        providerId === "awin"
+          ? awin
+          : providerId === "impact"
+            ? impact
+            : null;
+      if (descriptor === null) {
+        return { ok: false, reason: "unknown_provider" };
+      }
+      if (descriptor.userExposed !== true) {
+        return { ok: false, reason: "not_user_exposed" };
+      }
+      const capable =
+        purpose === "preview"
+          ? descriptor.capabilities.preview === true
+          : descriptor.capabilities.importSupported === true;
+      if (!capable) {
+        return { ok: false, reason: "capability_unsupported" };
+      }
+      // Per-known-provider closure construction. The generic deps shape is
+      // structurally identical to each descriptor's typed deps (the fetcher
+      // signatures match); the cast only re-narrows the union.
+      const closure: ProviderPreviewClosure =
+        descriptor.providerId === "awin"
+          ? (awin.createPreview(deps as AwinPreviewDeps) as ProviderPreviewClosure)
+          : (impact.createPreview(
+              deps as ImpactPreviewDeps,
+            ) as ProviderPreviewClosure);
+      return {
+        ok: true,
+        descriptor: metadataOnly(descriptor),
+        closure,
+      };
     },
     get(providerId: string): AnyProviderDescriptor | null {
       if (providerId === "awin" || providerId === "impact") {

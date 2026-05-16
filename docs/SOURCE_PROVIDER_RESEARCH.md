@@ -1,5 +1,36 @@
 # Salvare Source Provider Research — v0.31.0
 
+> **v0.45.0 status (2026-05-16):** **Generic provider preview/import
+> routing.** The Awin-pinned preview/import routes are replaced by
+> parameterised `POST /admin/source-preview/:providerId` and
+> `POST /admin/source-import/:providerId`, resolving the provider through a
+> new registry method `resolveProvider(providerId, purpose, deps)`. A
+> generic `ProviderAdapter` contract ([`server/source-provider-types.ts`](../server/source-provider-types.ts))
+> is extracted from the identical Awin/Impact shapes (compile-time
+> assignability assertions; zero adapter behavior change). The provider-id
+> path segment is charset-validated (`^[a-z0-9-]{1,32}$`) before any echo;
+> illegal/oversize → `HTTP 400 {ok:false,error:"invalid provider"}` with a
+> fixed literal. Resolver is fail-closed (never throws raw): unknown →
+> `unknown_provider`; registry-internal (`userExposed!==true`) →
+> `not_user_exposed`; missing capability → `capability_unsupported`; deny
+> returns the v0.44 disabled-envelope shape at HTTP 200 with no
+> `disabled:true`. **impact stays unreachable on the user surface** —
+> `userExposed:false` denies it for BOTH preview and import
+> (`not_user_exposed`), and `importSupported:false` is an additional gate.
+> The import route is fully decoupled from the old
+> `AWIN_SOURCE_ID`/`AWIN_SOURCE_NAME` constants: the candidate filter and
+> `importProviderCandidates` args are driven from the resolved registry
+> descriptor (`sourceId`/`displayName`/`sourceType`), never a constant or
+> client value. `awin` response bodies are byte-identical to v0.44;
+> `source_fetch_log` still records the adapter's own `source_id`-keyed row.
+> `server/index.ts` swaps the single injected `awinPreview` for a
+> registry-driven resolver, preserving only the `awin` test-override seam.
+> **Still out of scope (v0.46.0+):** no new audit/import-history table, no
+> import history view, no multi-provider admin chrome/badges, no impact
+> user exposure, no scraping/new providers, no automatic import/apply, no
+> scheduler, no extension/`/coupons`/export/import JSON/ranking/DB-schema
+> changes, no live HTTP in tests.
+>
 > **v0.44.0 status (2026-05-15):** Registry-backed **admin provider
 > selector** added. New protected read-only endpoint
 > `GET /admin/source-providers`

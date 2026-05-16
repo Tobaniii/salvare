@@ -32,6 +32,7 @@ import { handleAdminImportRoute } from "./admin-import-routes";
 import {
   handleAdminSourcePreviewRoute,
   type AwinPreviewFn,
+  type ProviderRouteResolver,
 } from "./admin-source-preview-routes";
 import { handleAdminSourceImportRoute } from "./admin-source-import-routes";
 import { handleAdminSourceSummaryRoute } from "./admin-source-summary-routes";
@@ -42,11 +43,14 @@ import {
 } from "./admin-source-providers-routes";
 import type { ProviderStatusFn } from "./db-source-status";
 import { getSourceAwareCandidateOrder } from "./db-candidate-order";
-import type { AwinFetcher } from "./source-provider-awin";
 import {
   createProviderRegistry,
   type ProviderRegistry,
 } from "./source-provider-registry";
+import type {
+  ProviderFetcher,
+  ProviderPreviewDeps,
+} from "./source-provider-types";
 
 export interface SalvareServerOptions {
   db: Db;
@@ -79,7 +83,7 @@ export interface SalvareServerOptions {
   providerListSource?: ProviderListSource;
 }
 
-const DEFAULT_AWIN_FETCHER: AwinFetcher = async (url, init) => {
+const DEFAULT_FETCHER: ProviderFetcher = async (url, init) => {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), init.timeoutMs);
   try {
@@ -105,22 +109,39 @@ function createDefaultProviderStatus(
   return registry.asProviderStatusFn();
 }
 
-function createDefaultAwinPreview(
+// v0.45.0 — generic provider preview/import routing. The single injected
+// `awinPreview` is replaced by a registry-driven resolver bound to the
+// default fetcher. The `options.awinPreview` test seam is preserved: when a
+// route resolves the `awin` provider and an override was injected, the
+// override closure is substituted (registry-authoritative metadata is still
+// used). No generic per-provider override map exists yet — only the awin
+// seam current tests rely on.
+function createProviderRouteResolver(
   db: Db,
   registry: ProviderRegistry,
-): AwinPreviewFn {
-  return registry.getAwin().createPreview({
-    db,
-    fetcher: DEFAULT_AWIN_FETCHER,
-  });
+  awinOverride: AwinPreviewFn | undefined,
+): ProviderRouteResolver {
+  const baseDeps: ProviderPreviewDeps = { db, fetcher: DEFAULT_FETCHER };
+  return (providerId, purpose) => {
+    const resolved = registry.resolveProvider(providerId, purpose, baseDeps);
+    if (!resolved.ok) return resolved;
+    if (providerId === "awin" && awinOverride) {
+      return {
+        ok: true,
+        descriptor: resolved.descriptor,
+        closure: awinOverride,
+      };
+    }
+    return resolved;
+  };
 }
 
 export function createSalvareServer(options: SalvareServerOptions): Server {
   const { db, adminToken } = options;
   const version = options.version ?? SALVARE_VERSION;
   const registry = createProviderRegistry();
-  const awinPreview: AwinPreviewFn =
-    options.awinPreview ?? createDefaultAwinPreview(db, registry);
+  const resolveProviderForRoute: ProviderRouteResolver =
+    createProviderRouteResolver(db, registry, options.awinPreview);
   const providerStatus: ProviderStatusFn =
     options.providerStatus ?? createDefaultProviderStatus(registry);
   const providerListSource: ProviderListSource =
@@ -260,8 +281,10 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
     if (await handleAdminCoreRoute(ctx)) return;
     if (handleAdminExportRoute(ctx)) return;
     if (await handleAdminImportRoute(ctx)) return;
-    if (await handleAdminSourcePreviewRoute(ctx, awinPreview)) return;
-    if (await handleAdminSourceImportRoute(ctx, awinPreview)) return;
+    if (await handleAdminSourcePreviewRoute(ctx, resolveProviderForRoute))
+      return;
+    if (await handleAdminSourceImportRoute(ctx, resolveProviderForRoute))
+      return;
     if (handleAdminSourceSummaryRoute(ctx)) return;
     if (handleAdminSourceStatusRoute(ctx, providerStatus)) return;
     if (handleAdminSourceProvidersRoute(ctx, providerListSource)) return;
