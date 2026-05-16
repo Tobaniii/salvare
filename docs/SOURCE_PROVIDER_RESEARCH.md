@@ -1,5 +1,31 @@
 # Salvare Source Provider Research — v0.31.0
 
+> **v0.44.0 status (2026-05-15):** Registry-backed **admin provider
+> selector** added. New protected read-only endpoint
+> `GET /admin/source-providers`
+> ([`server/admin-source-providers-routes.ts`](../server/admin-source-providers-routes.ts))
+> filters `createProviderRegistry().list()` to `userExposed === true` and
+> returns an allowlisted `{ providers: [{ providerId, displayName,
+> sourceId, sourceType, capabilities: { preview, importSupported,
+> cacheSupported } }] }`. `userExposed` is the gate, not a returned field;
+> `featureEnabled` / `configured` remain only on `/admin/source-status`.
+> The admin UI replaces the static `Provider: Awin` label with a
+> registry-populated `<select>` + capability line, defaulting to Awin,
+> capability-gating the Import button on `importSupported`, and enforcing a
+> **hard client-side id allowlist** (`["awin"]`) plus an embedded
+> Awin-only fallback so a tampered list response cannot surface
+> **impact** or any arbitrary id. **impact stays registry-internal**
+> (`userExposed: false`) — it is absent from the endpoint response, the
+> admin selector, and the admin HTML source (no `impact` literal). Awin
+> preview/import paths, request bodies, server-side `IMPORT` confirmation,
+> and `/admin/source-status` shape are byte-compatible with v0.43.
+> **Still out of scope:** impact admin exposure / import, generic public
+> provider endpoint, source-refresh CLI multi-provider support, automatic
+> import / apply, scheduler / background refresh, source edit / delete,
+> live provider calls in tests, extension behaviour changes, `/coupons` /
+> export / import JSON shape changes, ranking / winner-selection changes,
+> `coupon_results` writes, and DB schema changes.
+>
 > **v0.43.0 status (2026-05-15):** Internal **provider registry** added
 > ([`server/source-provider-registry.ts`](../server/source-provider-registry.ts)).
 > Centralises descriptor metadata, safe status accessors, and typed preview

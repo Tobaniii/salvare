@@ -335,6 +335,36 @@ Coupons and result-history imports are independent: previewing or applying one b
 
 `server/source-provider-registry.ts` is an **internal** registry of trusted source providers. It centralises provider metadata (id, source id, display name, source type, capability flags), safe status accessors (`featureEnabled` / `configured` booleans only — never env values, API keys, or credentials), and typed preview factories so future milestones can flip capability gates without rewriting adapter dispatch. v0.43 registers **awin** (full capabilities; user-exposed via the existing admin preview/import and source-refresh CLI paths) and **impact** (`capabilities.importSupported: false`, `userExposed: false`; registry-internal only). The registry is not exposed via any HTTP route, CLI flag, or admin UI in v0.43 — Awin endpoints, CLI behavior, and the `GET /admin/source-status` response shape are byte-compatible with v0.42. A future milestone will add a generic provider-aware admin UI/CLI on top of these gates.
 
+### Admin source provider list / selector (v0.44.0)
+
+`GET /admin/source-providers` is a protected, **read-only** endpoint that surfaces the registry-backed list of **user-exposed** providers so the admin UI can render a provider selector instead of a hard-coded `Awin` label. It is protected when `SALVARE_ADMIN_TOKEN` is configured and open otherwise, matching the rest of the `/admin/*` surface, and is covered by the [`server/auth-routes.test.ts`](../server/auth-routes.test.ts) protected-endpoint matrix. The handler executes zero writes, takes no request body, ignores query parameters, and reads no env values — it filters `createProviderRegistry().list()` to `userExposed === true` and projects each descriptor through a strict allowlist.
+
+Response shape (one entry per user-exposed provider; v0.44 exposes Awin only — impact stays registry-internal while `userExposed=false`):
+
+```json
+{
+  "providers": [
+    {
+      "providerId": "awin",
+      "displayName": "Awin Offers API",
+      "sourceId": "awin",
+      "sourceType": "api",
+      "capabilities": {
+        "preview": true,
+        "importSupported": true,
+        "cacheSupported": true
+      }
+    }
+  ]
+}
+```
+
+`userExposed` is the **gate**, not a returned field — it never appears in the body. The response also never includes `featureEnabled` / `configured` (those remain on `GET /admin/source-status`), the admin token, the API key, the `Authorization` header, cookies, `localStorage`, env values or env names, the DB path, raw provider payloads, raw HTML, source URLs, affiliate / tracking / payout fields, or stack traces. Behavior is covered by [`server/admin-source-providers-routes.test.ts`](../server/admin-source-providers-routes.test.ts) (auth 401, awin-only, impact hidden, allowlisted shape, redaction, custom-list `userExposed` filtering).
+
+The admin shell ([`server/admin.html`](../server/admin.html)) renders a `#source-preview-provider` `<select>` plus a `#source-preview-capabilities` line in the **Source preview** section. On load (and after the admin token is saved/cleared) the inline client issues `GET /admin/source-providers` with the existing `authHeaders()` helper. It applies a **hard client-side id allowlist** (`ALLOWED_PROVIDER_IDS = ["awin"]` in v0.44): any entry whose `providerId` is not in that allowlist — including a tampered response that smuggles in `impact` or an arbitrary string — is silently dropped, so the constructed `POST /admin/source-preview/<id>` and `POST /admin/source-import/<id>` URLs can only ever target Awin. On 401 / network error / empty list, an embedded `FALLBACK_PROVIDERS` (Awin only, full capabilities) keeps the section operational without exposing any non-user-exposed provider. The selector defaults to the first exposed provider (Awin). The **Import previewed candidates** button stays disabled unless the selected provider's `capabilities.importSupported === true` **and** the previously previewed provider still matches the selection — in addition to the existing successful-preview, candidates-exist, and exact-`IMPORT` gates. The server-side `confirm === "IMPORT"` check on the import route remains mandatory and is unchanged; no client change can bypass it. Provider name and capability tokens render via `textContent` only. DOM behavior is covered by [`server/admin-source-preview-client.test.ts`](../server/admin-source-preview-client.test.ts); HTML markers by [`server/admin.test.ts`](../server/admin.test.ts); control visibility by [`smoke/admin.smoke.ts`](../smoke/admin.smoke.ts) and [`smoke/auth.smoke.ts`](../smoke/auth.smoke.ts).
+
+With only Awin exposed, the click flow, request paths (`/admin/source-preview/awin`, `/admin/source-import/awin`), and posted bodies are byte-identical to v0.43 — this milestone adds the selector scaffolding without changing observable Awin behavior.
+
 ### Admin source preview endpoint
 
 `POST /admin/source-preview/awin` exposes the mocked, feature-flagged Awin provider adapter (v0.32/v0.33) through a preview-only HTTP boundary. The route is protected when `SALVARE_ADMIN_TOKEN` is configured and open otherwise, matching the rest of the `/admin/*` surface. It is **preview-only**: it never writes to `coupon_codes` or `coupon_results`, never imports or applies anything, never calls into the ranking path, and exposes no admin UI control. The only persistence the route can produce is the adapter's existing internal bookkeeping — `source_fetch_log`, `source_cache`, and one-time runtime `coupon_sources` registration — and only when the feature flag and API key are both present.

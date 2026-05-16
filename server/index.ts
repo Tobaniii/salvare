@@ -36,6 +36,10 @@ import {
 import { handleAdminSourceImportRoute } from "./admin-source-import-routes";
 import { handleAdminSourceSummaryRoute } from "./admin-source-summary-routes";
 import { handleAdminSourceStatusRoute } from "./admin-source-status-routes";
+import {
+  handleAdminSourceProvidersRoute,
+  type ProviderListSource,
+} from "./admin-source-providers-routes";
 import type { ProviderStatusFn } from "./db-source-status";
 import { getSourceAwareCandidateOrder } from "./db-candidate-order";
 import type { AwinFetcher } from "./source-provider-awin";
@@ -65,6 +69,14 @@ export interface SalvareServerOptions {
    * `{ featureEnabled: false, configured: false }` for every other source.
    */
   providerStatus?: ProviderStatusFn;
+  /**
+   * Optional source-of-truth for the provider list returned by
+   * `GET /admin/source-providers` (v0.44.0). Tests inject a stub so the
+   * handler is exercised independently of the live registry; production wires
+   * this to `registry.list()` so the admin UI gets the userExposed-only
+   * subset (impact stays hidden in v0.44).
+   */
+  providerListSource?: ProviderListSource;
 }
 
 const DEFAULT_AWIN_FETCHER: AwinFetcher = async (url, init) => {
@@ -111,6 +123,8 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
     options.awinPreview ?? createDefaultAwinPreview(db, registry);
   const providerStatus: ProviderStatusFn =
     options.providerStatus ?? createDefaultProviderStatus(registry);
+  const providerListSource: ProviderListSource =
+    options.providerListSource ?? (() => registry.list());
 
   function requireAuth(req: IncomingMessage, res: ServerResponse): boolean {
     if (isAuthorized(req.headers, adminToken)) return true;
@@ -250,6 +264,7 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
     if (await handleAdminSourceImportRoute(ctx, awinPreview)) return;
     if (handleAdminSourceSummaryRoute(ctx)) return;
     if (handleAdminSourceStatusRoute(ctx, providerStatus)) return;
+    if (handleAdminSourceProvidersRoute(ctx, providerListSource)) return;
 
     sendJson(res, 404, { error: "not found" });
   }

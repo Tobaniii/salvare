@@ -41,6 +41,7 @@ test.describe("token-mode smoke", () => {
       await expect(
         page.getByRole("heading", { name: "Source preview" }),
       ).toBeVisible();
+      await expect(page.locator("#source-preview-provider")).toBeVisible();
       await expect(page.locator("#source-preview-domain")).toBeVisible();
       await expect(page.locator("#source-preview-btn")).toBeVisible();
     });

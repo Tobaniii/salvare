@@ -72,6 +72,23 @@ async function setupHarness(): Promise<Harness> {
     if (url === "/admin/coupons") {
       return jsonResponse({ coupons: {} });
     }
+    if (url === "/admin/source-providers") {
+      return jsonResponse({
+        providers: [
+          {
+            providerId: "awin",
+            sourceId: "awin",
+            displayName: "Awin",
+            sourceType: "api",
+            capabilities: {
+              preview: true,
+              importSupported: true,
+              cacheSupported: true,
+            },
+          },
+        ],
+      });
+    }
     return jsonResponse({});
   };
 
@@ -125,6 +142,16 @@ async function setupHarness(): Promise<Harness> {
     if (!el) throw new Error(`missing element: ${id}`);
     el.value = value;
   }
+
+  // The bootstrap calls loadSourceProviders() asynchronously; block until the
+  // provider <select> is populated so preview/import clicks resolve a
+  // provider deterministically.
+  await waitFor(() => {
+    const sel = document.getElementById(
+      "source-preview-provider",
+    ) as HTMLSelectElement | null;
+    return !!sel && sel.options.length > 0;
+  });
 
   return {
     window,
@@ -644,6 +671,234 @@ describe("admin source-preview client", () => {
     expect(summaryText).not.toContain("raw-html");
     expect(summaryText).not.toContain("SALVARE_AWIN_API_KEY");
     expect(summaryText).not.toContain("should-never-render");
+  });
+
+  it("bootstrap loads the provider list (GET) and defaults to Awin with capabilities", async () => {
+    await h.waitFor(() =>
+      h.fetchCalls.some((c) => c.url === "/admin/source-providers"),
+    );
+    const call = h.fetchCalls.find(
+      (c) => c.url === "/admin/source-providers",
+    )!;
+    expect(call.method).toBe("GET");
+
+    const sel = h.document.getElementById(
+      "source-preview-provider",
+    ) as HTMLSelectElement;
+    expect(sel.options.length).toBe(1);
+    expect(sel.value).toBe("awin");
+    expect(sel.options[0].textContent).toBe("Awin");
+
+    const caps =
+      h.document.getElementById("source-preview-capabilities")
+        ?.textContent ?? "";
+    expect(caps).toContain("preview");
+    expect(caps).toContain("import");
+    expect(caps).toContain("cache");
+  });
+
+  it("re-requests the provider list with the bearer token after the token is saved", async () => {
+    h.fill("token-input", "tok-prov-1");
+    h.click("token-save");
+
+    await h.waitFor(
+      () =>
+        h.fetchCalls.filter((c) => c.url === "/admin/source-providers")
+          .length >= 2,
+    );
+    const authed = h.fetchCalls
+      .filter((c) => c.url === "/admin/source-providers")
+      .some((c) => c.headers["Authorization"] === "Bearer tok-prov-1");
+    expect(authed).toBe(true);
+  });
+
+  it("preview POSTs to the selected provider's path (awin)", async () => {
+    h.setResponder((url) => {
+      if (url === "/admin/source-providers") {
+        return jsonResponse({
+          providers: [
+            {
+              providerId: "awin",
+              sourceId: "awin",
+              displayName: "Awin",
+              sourceType: "api",
+              capabilities: {
+                preview: true,
+                importSupported: true,
+                cacheSupported: true,
+              },
+            },
+          ],
+        });
+      }
+      if (url === "/admin/source-preview/awin") {
+        return jsonResponse({
+          ok: true,
+          provider: "awin",
+          domain: "shop.example",
+          cacheHit: false,
+          fetched: true,
+          candidateCount: 0,
+          candidates: [],
+          errors: [],
+        });
+      }
+      return jsonResponse({});
+    });
+
+    h.fill("source-preview-domain", "shop.example");
+    h.click("source-preview-btn");
+
+    await h.waitFor(() =>
+      h.fetchCalls.some((c) => c.url === "/admin/source-preview/awin"),
+    );
+    expect(
+      h.fetchCalls.some((c) => c.url.includes("/admin/source-preview/impact")),
+    ).toBe(false);
+  });
+
+  it("never renders impact in the selector even if a tampered list smuggles it in", async () => {
+    const fresh = await setupHarness();
+    fresh.setResponder((url) => {
+      if (url === "/admin/source-providers") {
+        return jsonResponse({
+          providers: [
+            {
+              providerId: "awin",
+              sourceId: "awin",
+              displayName: "Awin",
+              sourceType: "api",
+              capabilities: {
+                preview: true,
+                importSupported: true,
+                cacheSupported: true,
+              },
+            },
+            {
+              providerId: "impact",
+              sourceId: "impact",
+              displayName: "impact.com Promotions API",
+              sourceType: "api",
+              capabilities: {
+                preview: true,
+                importSupported: true,
+                cacheSupported: false,
+              },
+            },
+            {
+              providerId: "evil",
+              sourceId: "evil",
+              displayName: "../../etc/passwd",
+              sourceType: "api",
+              capabilities: {
+                preview: true,
+                importSupported: true,
+                cacheSupported: true,
+              },
+            },
+          ],
+        });
+      }
+      return jsonResponse({});
+    });
+    // Force a reload of the provider list under the tampered responder.
+    fresh.fill("token-input", "tok-x");
+    fresh.click("token-save");
+
+    await fresh.waitFor(
+      () =>
+        fresh.fetchCalls.filter(
+          (c) => c.url === "/admin/source-providers",
+        ).length >= 2,
+    );
+
+    const sel = fresh.document.getElementById(
+      "source-preview-provider",
+    ) as HTMLSelectElement;
+    const values = Array.from(sel.options).map((o) => o.value);
+    expect(values).toEqual(["awin"]);
+    const selectText = sel.textContent ?? "";
+    expect(selectText).not.toContain("impact");
+    expect(selectText).not.toContain("passwd");
+    await fresh.cleanup();
+  });
+
+  it("import button stays disabled when the selected provider lacks importSupported", async () => {
+    const fresh = await setupHarness();
+    fresh.setResponder((url) => {
+      if (url === "/admin/source-providers") {
+        return jsonResponse({
+          providers: [
+            {
+              providerId: "awin",
+              sourceId: "awin",
+              displayName: "Awin",
+              sourceType: "api",
+              capabilities: {
+                preview: true,
+                importSupported: false,
+                cacheSupported: true,
+              },
+            },
+          ],
+        });
+      }
+      if (url === "/admin/source-preview/awin") {
+        return jsonResponse({
+          ok: true,
+          provider: "awin",
+          domain: "shop.example",
+          cacheHit: false,
+          fetched: true,
+          candidateCount: 1,
+          candidates: [
+            {
+              sourceId: "awin",
+              domain: "shop.example",
+              code: "AWIN10",
+              label: "10% off",
+              expiresAt: "2026-12-31",
+              confidence: 0.8,
+            },
+          ],
+          errors: [],
+        });
+      }
+      return jsonResponse({});
+    });
+    fresh.fill("token-input", "tok-y");
+    fresh.click("token-save");
+
+    await fresh.waitFor(
+      () =>
+        fresh.fetchCalls.filter(
+          (c) => c.url === "/admin/source-providers",
+        ).length >= 2,
+    );
+
+    fresh.fill("source-preview-domain", "shop.example");
+    fresh.click("source-preview-btn");
+    await fresh.waitFor(
+      () =>
+        (fresh.document.getElementById("source-preview-status")
+          ?.textContent ?? "") === "Preview ok (not saved).",
+    );
+
+    const confirmInput = fresh.document.getElementById(
+      "source-import-confirm",
+    ) as HTMLInputElement;
+    confirmInput.value = "IMPORT";
+    confirmInput.dispatchEvent(
+      new (fresh.window as unknown as { Event: typeof Event }).Event("input", {
+        bubbles: true,
+      }),
+    );
+
+    const btn = fresh.document.getElementById(
+      "source-import-btn",
+    ) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    await fresh.cleanup();
   });
 
   it("makes only the one source-preview POST per click and no coupon-write requests", async () => {

@@ -33,6 +33,10 @@ test.describe("admin page UI", () => {
     await expect(
       page.getByRole("heading", { name: "Source preview" }),
     ).toBeVisible();
+    await expect(page.locator("#source-preview-provider")).toBeVisible();
+    await expect(
+      page.locator("#source-preview-provider option"),
+    ).toHaveText(["Awin Offers API"]);
     await expect(page.locator("#source-preview-domain")).toBeVisible();
     await expect(page.locator("#source-preview-btn")).toBeVisible();
 

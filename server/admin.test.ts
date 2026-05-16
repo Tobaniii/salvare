@@ -75,17 +75,39 @@ describe("getAdminHtml", () => {
     expect(html).not.toContain("/admin/reset");
   });
 
-  it("includes the source preview section, domain input, preview button, status, candidates, and errors containers", () => {
+  it("includes the source preview section, provider selector, domain input, preview button, status, candidates, and errors containers", () => {
     const html = getAdminHtml();
     expect(html).toContain("Source preview");
-    expect(html).toContain("Provider: Awin");
+    expect(html).toContain('id="source-preview-provider"');
+    expect(html).toContain('id="source-preview-capabilities"');
     expect(html).toContain("nothing is saved on");
     expect(html).toContain('id="source-preview-domain"');
     expect(html).toContain('id="source-preview-btn"');
     expect(html).toContain('id="source-preview-status"');
     expect(html).toContain('id="source-preview-candidates"');
     expect(html).toContain('id="source-preview-errors"');
-    expect(html).toContain("/admin/source-preview/awin");
+    expect(html).toContain("/admin/source-providers");
+    expect(html).toContain("/admin/source-preview/");
+  });
+
+  it("source preview provider selector is registry-backed and exposes only the Awin id (no impact literal)", () => {
+    const html = getAdminHtml();
+    // The client allowlist must be exactly ["awin"] in v0.44.
+    expect(html).toContain('ALLOWED_PROVIDER_IDS = ["awin"]');
+    // No impact identifiers anywhere in the admin shell or its inline client.
+    expect(html).not.toContain("impact");
+    expect(html).not.toContain("Impact");
+    expect(html).not.toContain("/admin/source-preview/impact");
+    expect(html).not.toContain("/admin/source-import/impact");
+  });
+
+  it("embedded provider fallback only contains Awin with full capabilities", () => {
+    const html = getAdminHtml();
+    expect(html).toContain("FALLBACK_PROVIDERS");
+    // Fallback capabilities must match the registry awin metadata.
+    expect(html).toMatch(
+      /FALLBACK_PROVIDERS[\s\S]*providerId:\s*"awin"[\s\S]*importSupported:\s*true/,
+    );
   });
 
   it("does not include any source-preview import/apply controls or coupon-write routes for preview", () => {
@@ -101,7 +123,7 @@ describe("getAdminHtml", () => {
     expect(html).toContain('id="source-import-confirm"');
     expect(html).toContain('id="source-import-btn"');
     expect(html).toContain("Import previewed candidates");
-    expect(html).toContain("/admin/source-import/awin");
+    expect(html).toContain("/admin/source-import/");
     expect(html).toContain("not");
     expect(html).toContain("auto-tested or auto-applied");
   });

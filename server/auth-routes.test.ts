@@ -146,6 +146,11 @@ const PROTECTED_ENDPOINTS: Array<{
     path: "/admin/source-summary?domain=example.com",
     init: { method: "GET" },
   },
+  {
+    name: "GET /admin/source-providers",
+    path: "/admin/source-providers",
+    init: { method: "GET" },
+  },
 ];
 
 describe("auth disabled (no SALVARE_ADMIN_TOKEN)", () => {

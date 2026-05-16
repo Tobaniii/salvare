@@ -313,6 +313,18 @@
         font-size: 13px;
         color: #444;
       }
+      .source-preview-row select.source-preview-provider-select {
+        padding: 8px 10px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        font-size: 14px;
+        background: #fff;
+      }
+      .source-preview-capabilities {
+        font-size: 12px;
+        color: #555;
+        margin-top: 6px;
+      }
       .source-preview-row input[type="text"] {
         flex: 1 1 240px;
         padding: 8px 10px;
@@ -484,14 +496,23 @@
     <section class="source-preview-bar" aria-label="Source preview">
       <h2>Source preview</h2>
       <p class="domain-empty">
-        Preview calls protected
-        <code>POST /admin/source-preview/awin</code>; nothing is saved on
-        preview. Importing saves candidates to the coupon table only — codes
-        are <strong>not</strong> auto-tested or auto-applied until the normal
-        extension flow runs at checkout.
+        Preview calls the protected
+        <code>POST /admin/source-preview/&lt;providerId&gt;</code> route for
+        the selected provider; nothing is saved on preview. Importing saves
+        candidates to the coupon table only — codes are <strong>not</strong>
+        auto-tested or auto-applied until the normal extension flow runs at
+        checkout. Provider list comes from
+        <code>GET /admin/source-providers</code> (registry-backed,
+        capability-gated, user-exposed providers only).
       </p>
       <div class="source-preview-row">
-        <span class="source-preview-provider">Provider: Awin</span>
+        <label class="source-preview-provider" for="source-preview-provider">
+          Provider:
+        </label>
+        <select
+          id="source-preview-provider"
+          class="source-preview-provider-select"
+        ></select>
         <input
           id="source-preview-domain"
           type="text"
@@ -500,6 +521,10 @@
         />
         <button id="source-preview-btn" type="button">Preview</button>
       </div>
+      <div
+        id="source-preview-capabilities"
+        class="source-preview-capabilities"
+      ></div>
       <div id="source-preview-status"></div>
       <div id="source-preview-candidates"></div>
       <div id="source-preview-errors"></div>
@@ -585,6 +610,7 @@
       <code>GET /admin/export/results</code>,
       <code>POST /admin/import/preview/{coupons,results}</code>,
       <code>POST /admin/import/apply/{coupons,results}</code>,
+      <code>GET /admin/source-providers</code>,
       <code>POST /admin/source-preview/awin</code>,
       <code>POST /admin/source-import/awin</code>,
       <code>GET /admin/source-summary</code>, and
@@ -979,6 +1005,7 @@
         setTokenStatus("Token saved (stored locally in this browser).");
         setStatus("");
         loadCoupons();
+        loadSourceProviders();
       });
 
       tokenClearBtn.addEventListener("click", function () {
@@ -987,6 +1014,7 @@
         setTokenStatus("Token cleared.");
         setStatus("");
         loadCoupons();
+        loadSourceProviders();
       });
 
       function setExportStatus(message, kind) {
@@ -1288,6 +1316,12 @@
       var sourcePreviewDomainInput = document.getElementById(
         "source-preview-domain",
       );
+      var sourcePreviewProviderSelect = document.getElementById(
+        "source-preview-provider",
+      );
+      var sourcePreviewCapabilitiesEl = document.getElementById(
+        "source-preview-capabilities",
+      );
       var sourcePreviewBtn = document.getElementById("source-preview-btn");
       var sourcePreviewStatusEl = document.getElementById(
         "source-preview-status",
@@ -1298,6 +1332,138 @@
       var sourcePreviewErrorsEl = document.getElementById(
         "source-preview-errors",
       );
+
+      // Hard client-side allowlist of provider IDs the admin UI is willing to
+      // render. v0.44 exposes only Awin; even if a tampered
+      // /admin/source-providers response smuggles in a non-exposed or
+      // attacker-controlled id, the selector silently drops it so the
+      // constructed preview/import URLs can only ever target Awin.
+      var ALLOWED_PROVIDER_IDS = ["awin"];
+
+      // Embedded safe fallback for offline / 401 / network-error. Mirrors the
+      // registry's awin metadata. Keeps the section operational without
+      // exposing any non-user-exposed provider under failure modes.
+      var FALLBACK_PROVIDERS = [
+        {
+          providerId: "awin",
+          sourceId: "awin",
+          displayName: "Awin",
+          sourceType: "api",
+          capabilities: {
+            preview: true,
+            importSupported: true,
+            cacheSupported: true,
+          },
+        },
+      ];
+
+      var providersById = {};
+
+      function isAllowedProviderId(id) {
+        return (
+          typeof id === "string" && ALLOWED_PROVIDER_IDS.indexOf(id) !== -1
+        );
+      }
+
+      function sanitizeProviderEntry(entry) {
+        if (!entry || typeof entry !== "object") return null;
+        if (!isAllowedProviderId(entry.providerId)) return null;
+        var caps = entry.capabilities || {};
+        return {
+          providerId: entry.providerId,
+          sourceId: isAllowedProviderId(entry.sourceId)
+            ? entry.sourceId
+            : entry.providerId,
+          displayName:
+            typeof entry.displayName === "string" && entry.displayName.length > 0
+              ? entry.displayName
+              : entry.providerId,
+          sourceType:
+            typeof entry.sourceType === "string" ? entry.sourceType : "",
+          capabilities: {
+            preview: caps.preview === true,
+            importSupported: caps.importSupported === true,
+            cacheSupported: caps.cacheSupported === true,
+          },
+        };
+      }
+
+      function getSelectedProvider() {
+        var id = sourcePreviewProviderSelect.value;
+        if (!isAllowedProviderId(id)) return null;
+        return providersById[id] || null;
+      }
+
+      function renderProviderCapabilities() {
+        var provider = getSelectedProvider();
+        if (!provider) {
+          sourcePreviewCapabilitiesEl.textContent = "";
+          return;
+        }
+        var caps = provider.capabilities;
+        var tokens = [];
+        if (caps.preview) tokens.push("preview");
+        if (caps.importSupported) tokens.push("import");
+        if (caps.cacheSupported) tokens.push("cache");
+        sourcePreviewCapabilitiesEl.textContent =
+          "Capabilities: " + (tokens.length > 0 ? tokens.join(", ") : "(none)");
+      }
+
+      function populateProviderSelect(providers) {
+        var sanitized = [];
+        for (var i = 0; i < providers.length; i++) {
+          var safe = sanitizeProviderEntry(providers[i]);
+          if (safe) sanitized.push(safe);
+        }
+        if (sanitized.length === 0) {
+          sanitized = FALLBACK_PROVIDERS.slice();
+        }
+        providersById = {};
+        sourcePreviewProviderSelect.innerHTML = "";
+        for (var j = 0; j < sanitized.length; j++) {
+          var p = sanitized[j];
+          providersById[p.providerId] = p;
+          var opt = document.createElement("option");
+          opt.value = p.providerId;
+          opt.textContent = p.displayName;
+          sourcePreviewProviderSelect.appendChild(opt);
+        }
+        if (sanitized.length > 0) {
+          sourcePreviewProviderSelect.value = sanitized[0].providerId;
+        }
+        renderProviderCapabilities();
+        refreshSourceImportEnabled();
+      }
+
+      function loadSourceProviders() {
+        return fetch("/admin/source-providers", { headers: authHeaders() })
+          .then(function (r) {
+            if (r.status === 401) {
+              setAuthBannerVisible(true);
+              populateProviderSelect(FALLBACK_PROVIDERS);
+              return null;
+            }
+            if (!r.ok) {
+              populateProviderSelect(FALLBACK_PROVIDERS);
+              return null;
+            }
+            return r.json();
+          })
+          .then(function (body) {
+            if (body === null) return;
+            var list =
+              body && Array.isArray(body.providers) ? body.providers : [];
+            populateProviderSelect(list);
+          })
+          .catch(function () {
+            populateProviderSelect(FALLBACK_PROVIDERS);
+          });
+      }
+
+      sourcePreviewProviderSelect.addEventListener("change", function () {
+        renderProviderCapabilities();
+        resetSourceImportControls();
+      });
 
       var SOURCE_PREVIEW_CANDIDATE_FIELDS = [
         "sourceId",
@@ -1430,6 +1596,7 @@
 
       var lastPreviewedDomain = null;
       var lastPreviewHadCandidates = false;
+      var lastPreviewedProviderId = null;
 
       function setSourceImportStatus(message, kind) {
         sourceImportStatusEl.textContent = message || "";
@@ -1443,14 +1610,27 @@
       function refreshSourceImportEnabled() {
         var typed =
           sourceImportConfirmInput.value.trim() === "IMPORT";
+        var provider = getSelectedProvider();
+        var providerSupportsImport =
+          provider !== null &&
+          provider.capabilities.importSupported === true;
+        var providerStillSelected =
+          provider !== null &&
+          lastPreviewedProviderId !== null &&
+          provider.providerId === lastPreviewedProviderId;
         sourceImportBtn.disabled = !(
-          lastPreviewedDomain && lastPreviewHadCandidates && typed
+          lastPreviewedDomain &&
+          lastPreviewHadCandidates &&
+          typed &&
+          providerSupportsImport &&
+          providerStillSelected
         );
       }
 
       function resetSourceImportControls() {
         lastPreviewedDomain = null;
         lastPreviewHadCandidates = false;
+        lastPreviewedProviderId = null;
         sourceImportConfirmInput.value = "";
         clearSourceImportSummary();
         setSourceImportStatus("");
@@ -1510,6 +1690,15 @@
 
       sourcePreviewBtn.addEventListener("click", function () {
         var domain = sourcePreviewDomainInput.value.trim();
+        var provider = getSelectedProvider();
+        if (!provider) {
+          setSourcePreviewStatus(
+            "Provider not available.",
+            "error",
+          );
+          resetSourceImportControls();
+          return;
+        }
         if (!domain) {
           setSourcePreviewStatus("Domain is required.", "error");
           resetSourceImportControls();
@@ -1518,7 +1707,8 @@
         setSourcePreviewStatus("Previewing…");
         clearSourcePreviewResults();
         resetSourceImportControls();
-        fetch("/admin/source-preview/awin", {
+        var providerId = provider.providerId;
+        fetch("/admin/source-preview/" + encodeURIComponent(providerId), {
           method: "POST",
           headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ domain: domain }),
@@ -1548,6 +1738,7 @@
               setSourcePreviewStatus("Preview ok (not saved).", "ok");
               renderSourcePreviewCandidates(body);
               lastPreviewedDomain = domain;
+              lastPreviewedProviderId = providerId;
               lastPreviewHadCandidates =
                 Array.isArray(body.candidates) && body.candidates.length > 0;
               refreshSourceImportEnabled();
@@ -1567,17 +1758,26 @@
       sourceImportBtn.addEventListener("click", function () {
         if (!lastPreviewedDomain || !lastPreviewHadCandidates) return;
         if (sourceImportConfirmInput.value.trim() !== "IMPORT") return;
+        if (!isAllowedProviderId(lastPreviewedProviderId)) return;
+        var provider = providersById[lastPreviewedProviderId];
+        if (!provider || provider.capabilities.importSupported !== true) {
+          return;
+        }
         sourceImportBtn.disabled = true;
         setSourceImportStatus("Importing…");
         clearSourceImportSummary();
-        fetch("/admin/source-import/awin", {
-          method: "POST",
-          headers: authHeaders({ "Content-Type": "application/json" }),
-          body: JSON.stringify({
-            domain: lastPreviewedDomain,
-            confirm: "IMPORT",
-          }),
-        })
+        fetch(
+          "/admin/source-import/" +
+            encodeURIComponent(lastPreviewedProviderId),
+          {
+            method: "POST",
+            headers: authHeaders({ "Content-Type": "application/json" }),
+            body: JSON.stringify({
+              domain: lastPreviewedDomain,
+              confirm: "IMPORT",
+            }),
+          },
+        )
           .then(function (r) {
             if (r.status === 401) {
               setAuthBannerVisible(true);
@@ -1939,6 +2139,7 @@
       refreshTokenStatusFromStorage();
       loadHealth();
       loadCoupons();
+      loadSourceProviders();
     </script>
   </body>
 </html>
