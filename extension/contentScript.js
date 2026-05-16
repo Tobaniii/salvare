@@ -179,6 +179,32 @@
     };
   }
 
+  // extension/checkoutScan.ts
+  function findCouponInputs(root) {
+    const inputs = Array.from(root.querySelectorAll("input"));
+    return inputs.filter(
+      (input) => inputAttrsMatchCouponKeywords(readCouponInputAttrs(input))
+    );
+  }
+  function findApplyButtons(root) {
+    const elements = Array.from(
+      root.querySelectorAll(
+        "button, input[type='submit'], input[type='button']"
+      )
+    );
+    return elements.filter((element) => {
+      const attrs = readApplyButtonAttrs(element);
+      if (buttonAttrsMatchApplyKeywords(attrs)) return true;
+      if (!attrs.innerText) {
+        const fallbackText = element.textContent ?? "";
+        if (buttonAttrsMatchApplyKeywords({ ...attrs, innerText: fallbackText })) {
+          return true;
+        }
+      }
+      return false;
+    });
+  }
+
   // extension/profileDiagnostics.ts
   var SUPPORT_REASON = {
     Ready: "ready",
@@ -314,19 +340,11 @@
     if (fromRow) return fromRow;
     return findMoneyAfterLabel(["Total", "Order total", "Grand total"]);
   }
-  function findCouponInputs() {
-    const inputs = Array.from(document.querySelectorAll("input"));
-    return inputs.filter(
-      (input) => inputAttrsMatchCouponKeywords(readCouponInputAttrs(input))
-    );
+  function findCouponInputs2() {
+    return findCouponInputs(document);
   }
-  function findApplyButtons() {
-    const elements = Array.from(
-      document.querySelectorAll("button, input[type='submit'], input[type='button']")
-    );
-    return elements.filter(
-      (element) => buttonAttrsMatchApplyKeywords(readApplyButtonAttrs(element))
-    );
+  function findApplyButtons2() {
+    return findApplyButtons(document);
   }
   function findCouponInputForProfile(profile) {
     if (profile?.selectors?.couponInput) {
@@ -335,7 +353,7 @@
       );
       if (candidate) return candidate;
     }
-    return findCouponInputs()[0] ?? null;
+    return findCouponInputs2()[0] ?? null;
   }
   function isButtonClickable(button) {
     if (!isElementVisible(button)) return false;
@@ -422,7 +440,7 @@
       );
       if (candidate) return candidate;
     }
-    return findApplyButtons()[0] ?? null;
+    return findApplyButtons2()[0] ?? null;
   }
   function scanCheckoutPage(profile) {
     const subtotalText = findPossibleSubtotalText(profile);
@@ -434,8 +452,8 @@
       subtotalCents: subtotalText ? parseMoneyToCents(subtotalText) : null,
       totalText,
       totalCents,
-      couponInputsFound: findCouponInputs().length,
-      applyButtonsFound: findApplyButtons().length
+      couponInputsFound: findCouponInputs2().length,
+      applyButtonsFound: findApplyButtons2().length
     };
   }
   function logPossibleCheckoutText() {
