@@ -637,6 +637,7 @@ describe("POST /admin/source-import/:providerId — generic routing (v0.45.0)", 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(false);
+    // Impact ships enabled:true, so provider_disabled does not fire;
     // userExposed:false is checked before capability, so the deny reason is
     // not_user_exposed — impact is unreachable via the user surface.
     expect(body.reason).toBe("not_user_exposed");

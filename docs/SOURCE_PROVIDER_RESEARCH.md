@@ -1,5 +1,26 @@
 # Salvare Source Provider Research — v0.31.0
 
+> **v0.48.0 status (2026-05-16):** Provider **activation framework.** The
+> split registry gating (`ProviderCapabilities` + `descriptor.userExposed`)
+> is unified into one six-field `ProviderActivation`
+> (`enabled`/`previewEnabled`/`importEnabled`/`userExposed`/`cacheSupported`/`schedulerSupported`;
+> `preview → previewEnabled`, `importSupported → importEnabled`). A master
+> `enabled` gate is enforced fail-closed in `resolveProvider` via the new
+> pure `classifyActivation(activation|null, purpose)` —
+> precedence `unknown_provider` > `provider_disabled` > `not_user_exposed`
+> > `capability_unsupported` (`provider_disabled` added to
+> `ResolveDenyReason`; echoed directly by the preview/import routes, the
+> `SAFE_REASONS` adapter-error-code sets untouched). Both providers ship
+> `enabled:true` so behavior is **byte-identical to v0.47** — the disabled
+> path is test-double only; `schedulerSupported` is declared-only (false,
+> no consumer/enforcement, v0.52). Flags stay compile-time constants (no
+> env/DB/runtime toggling, schema stays `"5"`). `GET
+> /admin/source-providers` now carries a nested `activation` **5-field
+> subset** (`userExposed` stays the filter gate, never echoed) plus a new
+> **read-only** "Provider activation" admin.html section. Impact stays
+> hidden (`importEnabled:false`/`userExposed:false`), denied on
+> preview+import exactly as v0.47 (v0.49 will expose it).
+>
 > **v0.47.0 status (2026-05-16):** Generic provider **pipeline execution
 > layer.** The structurally-identical Awin (v0.32/v0.33) and Impact
 > (v0.42) adapters are gutted to thin spec builders that delegate one

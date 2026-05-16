@@ -90,6 +90,14 @@ describe("getAdminHtml", () => {
     expect(html).toContain("/admin/source-preview/");
   });
 
+  it("includes the read-only Provider activation section", () => {
+    const html = getAdminHtml();
+    expect(html).toContain("Provider activation");
+    expect(html).toContain('aria-label="Provider activation"');
+    expect(html).toContain('id="source-provider-activation"');
+    expect(html).toContain("renderProviderActivation");
+  });
+
   it("source preview provider selector is registry-backed and exposes only the Awin id (no impact literal)", () => {
     const html = getAdminHtml();
     // The client allowlist must be exactly ["awin"] in v0.44.
@@ -101,12 +109,12 @@ describe("getAdminHtml", () => {
     expect(html).not.toContain("/admin/source-import/impact");
   });
 
-  it("embedded provider fallback only contains Awin with full capabilities", () => {
+  it("embedded provider fallback only contains Awin with full activation", () => {
     const html = getAdminHtml();
     expect(html).toContain("FALLBACK_PROVIDERS");
-    // Fallback capabilities must match the registry awin metadata.
+    // Fallback activation must match the registry awin metadata.
     expect(html).toMatch(
-      /FALLBACK_PROVIDERS[\s\S]*providerId:\s*"awin"[\s\S]*importSupported:\s*true/,
+      /FALLBACK_PROVIDERS[\s\S]*providerId:\s*"awin"[\s\S]*importEnabled:\s*true/,
     );
   });
 

@@ -80,10 +80,12 @@ async function setupHarness(): Promise<Harness> {
             sourceId: "awin",
             displayName: "Awin",
             sourceType: "api",
-            capabilities: {
-              preview: true,
-              importSupported: true,
+            activation: {
+              enabled: true,
+              previewEnabled: true,
+              importEnabled: true,
               cacheSupported: true,
+              schedulerSupported: false,
             },
           },
         ],
@@ -722,10 +724,12 @@ describe("admin source-preview client", () => {
               sourceId: "awin",
               displayName: "Awin",
               sourceType: "api",
-              capabilities: {
-                preview: true,
-                importSupported: true,
+              activation: {
+                enabled: true,
+                previewEnabled: true,
+                importEnabled: true,
                 cacheSupported: true,
+                schedulerSupported: false,
               },
             },
           ],
@@ -768,10 +772,12 @@ describe("admin source-preview client", () => {
               sourceId: "awin",
               displayName: "Awin",
               sourceType: "api",
-              capabilities: {
-                preview: true,
-                importSupported: true,
+              activation: {
+                enabled: true,
+                previewEnabled: true,
+                importEnabled: true,
                 cacheSupported: true,
+                schedulerSupported: false,
               },
             },
             {
@@ -779,10 +785,12 @@ describe("admin source-preview client", () => {
               sourceId: "impact",
               displayName: "impact.com Promotions API",
               sourceType: "api",
-              capabilities: {
-                preview: true,
-                importSupported: true,
+              activation: {
+                enabled: true,
+                previewEnabled: true,
+                importEnabled: true,
                 cacheSupported: false,
+                schedulerSupported: false,
               },
             },
             {
@@ -790,10 +798,12 @@ describe("admin source-preview client", () => {
               sourceId: "evil",
               displayName: "../../etc/passwd",
               sourceType: "api",
-              capabilities: {
-                preview: true,
-                importSupported: true,
+              activation: {
+                enabled: true,
+                previewEnabled: true,
+                importEnabled: true,
                 cacheSupported: true,
+                schedulerSupported: false,
               },
             },
           ],
@@ -834,10 +844,12 @@ describe("admin source-preview client", () => {
               sourceId: "awin",
               displayName: "Awin",
               sourceType: "api",
-              capabilities: {
-                preview: true,
-                importSupported: false,
+              activation: {
+                enabled: true,
+                previewEnabled: true,
+                importEnabled: false,
                 cacheSupported: true,
+                schedulerSupported: false,
               },
             },
           ],

@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   createProviderRegistry,
+  classifyActivation,
   REGISTERED_PROVIDER_IDS,
+  type ProviderActivation,
 } from "./source-provider-registry";
 import type { AwinFetcher } from "./source-provider-awin";
 import type { ImpactFetcher } from "./source-provider-impact";
@@ -88,34 +90,45 @@ describe("createProviderRegistry — descriptors and listing", () => {
       expect(typeof meta.sourceId).toBe("string");
       expect(typeof meta.displayName).toBe("string");
       expect(meta.sourceType).toBe("api");
-      expect(typeof meta.capabilities.preview).toBe("boolean");
-      expect(typeof meta.capabilities.importSupported).toBe("boolean");
-      expect(typeof meta.capabilities.cacheSupported).toBe("boolean");
-      expect(typeof meta.userExposed).toBe("boolean");
+      expect(typeof meta.activation.enabled).toBe("boolean");
+      expect(typeof meta.activation.previewEnabled).toBe("boolean");
+      expect(typeof meta.activation.importEnabled).toBe("boolean");
+      expect(typeof meta.activation.userExposed).toBe("boolean");
+      expect(typeof meta.activation.cacheSupported).toBe("boolean");
+      expect(typeof meta.activation.schedulerSupported).toBe("boolean");
       // No live closures, no config readers, no env values.
       expect(Object.keys(meta)).toEqual([
         "providerId",
         "sourceId",
         "displayName",
         "sourceType",
-        "capabilities",
+        "activation",
+      ]);
+      expect(Object.keys(meta.activation)).toEqual([
+        "enabled",
+        "previewEnabled",
+        "importEnabled",
         "userExposed",
+        "cacheSupported",
+        "schedulerSupported",
       ]);
     }
   });
 
-  it("awin descriptor has full capabilities and is user-exposed", () => {
+  it("awin descriptor has full activation and is user-exposed", () => {
     const registry = createProviderRegistry();
     const awin = registry.get("awin");
     expect(awin).not.toBeNull();
     expect(awin!.providerId).toBe("awin");
     expect(awin!.sourceId).toBe("awin");
-    expect(awin!.capabilities).toEqual({
-      preview: true,
-      importSupported: true,
+    expect(awin!.activation).toEqual({
+      enabled: true,
+      previewEnabled: true,
+      importEnabled: true,
+      userExposed: true,
       cacheSupported: true,
+      schedulerSupported: false,
     });
-    expect(awin!.userExposed).toBe(true);
   });
 
   it("impact descriptor has cache parity but stays NOT user-exposed", () => {
@@ -124,15 +137,17 @@ describe("createProviderRegistry — descriptors and listing", () => {
     expect(impact).not.toBeNull();
     expect(impact!.providerId).toBe("impact");
     expect(impact!.sourceId).toBe("impact");
-    // v0.47.0 — Impact gained internal cache-read parity
-    // (`cacheSupported: true`); `importSupported`/`userExposed` stay
-    // false (v0.48/v0.49).
-    expect(impact!.capabilities).toEqual({
-      preview: true,
-      importSupported: false,
+    // v0.48.0 — Impact keeps internal cache-read parity
+    // (`cacheSupported: true`) and ships `enabled: true`;
+    // `importEnabled`/`userExposed` stay false (v0.49).
+    expect(impact!.activation).toEqual({
+      enabled: true,
+      previewEnabled: true,
+      importEnabled: false,
+      userExposed: false,
       cacheSupported: true,
+      schedulerSupported: false,
     });
-    expect(impact!.userExposed).toBe(false);
   });
 
   it("unknown provider returns null (fails closed)", () => {
@@ -346,20 +361,20 @@ describe("createProviderRegistry — preview factories (no live network)", () =>
 });
 
 describe("createProviderRegistry — capability gating", () => {
-  it("only awin satisfies importSupported (impact stays internal)", () => {
+  it("only awin satisfies importEnabled (impact stays internal)", () => {
     const registry = createProviderRegistry();
     const importCapable = registry
       .list()
-      .filter((d) => d.capabilities.importSupported)
+      .filter((d) => d.activation.importEnabled)
       .map((d) => d.providerId);
     expect(importCapable).toEqual(["awin"]);
   });
 
-  it("only awin is user-exposed in v0.43", () => {
+  it("only awin is user-exposed in v0.48", () => {
     const registry = createProviderRegistry();
     const exposed = registry
       .list()
-      .filter((d) => d.userExposed)
+      .filter((d) => d.activation.userExposed)
       .map((d) => d.providerId);
     expect(exposed).toEqual(["awin"]);
   });
@@ -368,9 +383,27 @@ describe("createProviderRegistry — capability gating", () => {
     const registry = createProviderRegistry();
     const cacheCapable = registry
       .list()
-      .filter((d) => d.capabilities.cacheSupported)
+      .filter((d) => d.activation.cacheSupported)
       .map((d) => d.providerId);
     expect(cacheCapable).toEqual(["awin", "impact"]);
+  });
+
+  it("both providers ship enabled:true (disabled path is test-double only)", () => {
+    const registry = createProviderRegistry();
+    const enabled = registry
+      .list()
+      .filter((d) => d.activation.enabled)
+      .map((d) => d.providerId);
+    expect(enabled).toEqual(["awin", "impact"]);
+  });
+
+  it("neither provider advertises schedulerSupported (declared-only)", () => {
+    const registry = createProviderRegistry();
+    const sched = registry
+      .list()
+      .filter((d) => d.activation.schedulerSupported)
+      .map((d) => d.providerId);
+    expect(sched).toEqual([]);
   });
 });
 
@@ -432,5 +465,130 @@ describe("createProviderRegistry — resolveProvider (v0.45.0)", () => {
       expect(out.sourceId).toBe("awin");
       expect(Array.isArray(out.candidates)).toBe(true);
     }
+  });
+});
+
+describe("classifyActivation — precedence matrix (v0.48.0)", () => {
+  const bools = [true, false] as const;
+  const purposes = ["preview", "import"] as const;
+
+  // Independent oracle of the documented precedence:
+  // unknown_provider > provider_disabled > not_user_exposed >
+  // capability_unsupported. Strict !== true (fail-closed).
+  function expected(
+    a: ProviderActivation | null,
+    purpose: "preview" | "import",
+  ): string {
+    if (a === null) return "unknown_provider";
+    if (a.enabled !== true) return "provider_disabled";
+    if (a.userExposed !== true) return "not_user_exposed";
+    const cap =
+      purpose === "preview"
+        ? a.previewEnabled === true
+        : a.importEnabled === true;
+    return cap ? "ok" : "capability_unsupported";
+  }
+
+  it("null activation === unknown_provider for both purposes", () => {
+    for (const purpose of purposes) {
+      expect(classifyActivation(null, purpose)).toBe("unknown_provider");
+    }
+  });
+
+  it("full cartesian of enabled×userExposed×previewEnabled×importEnabled × purpose", () => {
+    for (const enabled of bools)
+      for (const userExposed of bools)
+        for (const previewEnabled of bools)
+          for (const importEnabled of bools)
+            for (const purpose of purposes) {
+              const activation: ProviderActivation = {
+                enabled,
+                previewEnabled,
+                importEnabled,
+                userExposed,
+                cacheSupported: false,
+                schedulerSupported: false,
+              };
+              expect(classifyActivation(activation, purpose)).toBe(
+                expected(activation, purpose),
+              );
+            }
+  });
+
+  it("precedence: provider_disabled wins over not_user_exposed and capability", () => {
+    const a: ProviderActivation = {
+      enabled: false,
+      previewEnabled: false,
+      importEnabled: false,
+      userExposed: false,
+      cacheSupported: false,
+      schedulerSupported: false,
+    };
+    expect(classifyActivation(a, "preview")).toBe("provider_disabled");
+    expect(classifyActivation(a, "import")).toBe("provider_disabled");
+  });
+
+  it("precedence: not_user_exposed wins over capability_unsupported", () => {
+    const a: ProviderActivation = {
+      enabled: true,
+      previewEnabled: false,
+      importEnabled: false,
+      userExposed: false,
+      cacheSupported: false,
+      schedulerSupported: false,
+    };
+    expect(classifyActivation(a, "preview")).toBe("not_user_exposed");
+    expect(classifyActivation(a, "import")).toBe("not_user_exposed");
+  });
+
+  it("capability downgrade: previewEnabled:false denies preview, importEnabled:false denies import", () => {
+    const a: ProviderActivation = {
+      enabled: true,
+      previewEnabled: false,
+      importEnabled: true,
+      userExposed: true,
+      cacheSupported: false,
+      schedulerSupported: false,
+    };
+    expect(classifyActivation(a, "preview")).toBe("capability_unsupported");
+    expect(classifyActivation(a, "import")).toBe("ok");
+    const b: ProviderActivation = { ...a, previewEnabled: true, importEnabled: false };
+    expect(classifyActivation(b, "preview")).toBe("ok");
+    expect(classifyActivation(b, "import")).toBe("capability_unsupported");
+  });
+
+  it("fail-closed: missing/undefined flags deny (not coerced truthy)", () => {
+    // Simulate a tampered/partial descriptor missing the boolean fields.
+    const missingEnabled = {
+      previewEnabled: true,
+      importEnabled: true,
+      userExposed: true,
+      cacheSupported: false,
+      schedulerSupported: false,
+    } as unknown as ProviderActivation;
+    expect(classifyActivation(missingEnabled, "preview")).toBe(
+      "provider_disabled",
+    );
+    const missingUserExposed = {
+      enabled: true,
+      previewEnabled: true,
+      importEnabled: true,
+      cacheSupported: false,
+      schedulerSupported: false,
+    } as unknown as ProviderActivation;
+    expect(classifyActivation(missingUserExposed, "import")).toBe(
+      "not_user_exposed",
+    );
+    const missingPreview = {
+      enabled: true,
+      importEnabled: true,
+      userExposed: true,
+      cacheSupported: false,
+      schedulerSupported: false,
+    } as unknown as ProviderActivation;
+    expect(classifyActivation(missingPreview, "preview")).toBe(
+      "capability_unsupported",
+    );
+    expect(classifyActivation(missingPreview, "import")).toBe("ok");
   });
 });
