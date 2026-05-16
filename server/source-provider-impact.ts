@@ -25,14 +25,26 @@
 // reason codes; the API key, the raw response body, the account SID, and
 // any provider headers never appear in the result.
 //
-// The exact impact.com Promotions API response shape is CONTRACT-STYLE and
-// `[needs verification]` against developer.impact.com once a publisher
-// account exists. The real impact.com API authenticates via HTTP Basic
-// with `<accountSid>:<authToken>`; v0.42 uses a `Bearer` header to match
-// the existing Awin redaction-assertion surface. Live activation must
-// reconcile auth headers, credential format, and the response envelope
-// (e.g. `Promotions` vs `promotions`, field name case, pagination) with
-// the live API before production use.
+// v0.49.0 — REAL-SHAPED (still gated + hidden, NO live HTTP). The adapter
+// now speaks the DOCUMENTED impact.com Promotions API contract instead of
+// the v0.42 Bearer test-parity placeholder. Every item below is
+// "documented, not live-verified" — it reflects developer.impact.com
+// documentation but has NOT been confirmed against a live publisher
+// account. Each is an explicit OPEN item on the §4 checklist in
+// docs/SOURCE_PROVIDER_RESEARCH.md and MUST be reconciled before any live
+// flip (Impact stays `userExposed:false` / `importEnabled:false` here):
+//
+//  - Auth: HTTP Basic, `Authorization: Basic base64(accountSid:authToken)`.
+//    Built from already-read config only, never from client input; the
+//    header value, the base64 token, the account SID, and the auth token
+//    never reach the result, fetch log, cache, or status surface.
+//  - Endpoint: `/Mediapartners/{accountSid}/Promotions?advertiserDomain=`.
+//  - Envelope: `Promotions` (probing stays tolerant of `promotions`).
+//  - Field names / case: PascalCase primary, camelCase tolerated.
+//  - Pagination: NOT implemented. v0.49 fetches a SINGLE batch only,
+//    bounded by the existing §6 timeout / max-response guardrails. The
+//    impact.com pagination model is a documented known gap (§4 checklist)
+//    that must be resolved before a live flip.
 
 import type { Db } from "./db";
 import {
@@ -348,14 +360,22 @@ function promotionRowAllowed(value: unknown): ImpactPromotionRowRaw | null {
 
 function buildImpactUrl(
   baseUrl: string,
-  accountSid: string | null,
+  accountSid: string,
   domain: string,
 ): string {
   const root = baseUrl.replace(/\/+$/, "");
-  if (accountSid !== null) {
-    return `${root}/Mediapartners/${encodeURIComponent(accountSid)}/Promotions?advertiserDomain=${encodeURIComponent(domain)}`;
-  }
-  return `${root}/Promotions?advertiserDomain=${encodeURIComponent(domain)}`;
+  // accountSid is required (v0.49) — always present in the path.
+  return `${root}/Mediapartners/${encodeURIComponent(accountSid)}/Promotions?advertiserDomain=${encodeURIComponent(domain)}`;
+}
+
+// Documented impact.com auth: HTTP Basic, the credential pair being
+// `accountSid:authToken`. Built from already-read config only — never from
+// any client/request input. The encoded value never leaves this header.
+function buildImpactBasicAuth(accountSid: string, authToken: string): string {
+  const encoded = Buffer.from(`${accountSid}:${authToken}`, "utf8").toString(
+    "base64",
+  );
+  return `Basic ${encoded}`;
 }
 
 function extractPromotionsArray(parsed: unknown): unknown[] | null {
@@ -409,7 +429,17 @@ export function createImpactAdapter(
     cacheSupported: true,
     config: options.config,
     buildUrl: (domain: string) =>
-      buildImpactUrl(baseUrl, options.config.accountSid ?? null, domain),
+      buildImpactUrl(baseUrl, options.config.accountSid, domain),
+    // Defends against a config object constructed directly (bypassing
+    // readImpactConfig) with a blank account SID. Runs before any fetch /
+    // cache read, so a blank SID fails closed exactly like missing_api_key.
+    preflight: () =>
+      typeof options.config.accountSid === "string" &&
+      options.config.accountSid.trim().length > 0
+        ? null
+        : "missing_account_sid",
+    buildAuthHeader: (authToken: string) =>
+      buildImpactBasicAuth(options.config.accountSid, authToken),
     extractEnvelope: extractPromotionsArray,
     mapRow: mapImpactRow,
   };

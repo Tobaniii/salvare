@@ -42,6 +42,12 @@ import type {
 export type ProviderAdapterErrorCode =
   | "disabled"
   | "missing_api_key"
+  // v0.49.0 — Impact HTTP Basic needs an account SID alongside the auth
+  // token. A type-only widening (same forward-compat pattern as
+  // `rate_limited`/`cache_fresh`/`unknown_source`); zero runtime change for
+  // Awin, and `source-refresh.ts` SAFE_REASONS is unaffected (Impact is not
+  // wired into the refresh CLI).
+  | "missing_account_sid"
   | "rate_limited"
   | "cache_fresh"
   | "unknown_source"
