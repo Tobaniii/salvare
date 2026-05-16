@@ -582,6 +582,21 @@
       <div id="source-status-results"></div>
     </section>
 
+    <section class="source-preview-bar" aria-label="Import history">
+      <h2>Import history</h2>
+      <p class="domain-empty">
+        Read-only audit of real admin provider import attempts via
+        <code>GET /admin/import-history</code>.
+        <strong>Not</strong> editable — no refresh, no import, no delete.
+        Denied / unknown-provider attempts are not recorded.
+      </p>
+      <div class="source-preview-row">
+        <button id="import-history-btn" type="button">Load history</button>
+      </div>
+      <div id="import-history-status"></div>
+      <div id="import-history-results"></div>
+    </section>
+
     <div id="auth-banner" role="alert">
       Admin token required or invalid. Paste a valid token above and click Save.
     </div>
@@ -613,8 +628,9 @@
       <code>GET /admin/source-providers</code>,
       <code>POST /admin/source-preview/:providerId</code>,
       <code>POST /admin/source-import/:providerId</code>,
-      <code>GET /admin/source-summary</code>, and
-      <code>GET /admin/source-status</code>.
+      <code>GET /admin/source-summary</code>,
+      <code>GET /admin/source-status</code>, and
+      <code>GET /admin/import-history</code>.
     </footer>
 
     <script>
@@ -2133,6 +2149,111 @@
           })
           .catch(function () {
             setSourceStatusStatus("Load failed.", "error");
+          });
+      });
+
+      var importHistoryBtn = document.getElementById("import-history-btn");
+      var importHistoryStatusEl = document.getElementById(
+        "import-history-status",
+      );
+      var importHistoryResultsEl = document.getElementById(
+        "import-history-results",
+      );
+
+      var IMPORT_HISTORY_COLUMNS = [
+        "attemptedAt",
+        "providerId",
+        "sourceId",
+        "domain",
+        "outcome",
+        "candidatesAccepted",
+        "codesImported",
+        "provenanceRecorded",
+        "rejectedCount",
+        "errorCode",
+        "durationMs",
+      ];
+
+      function setImportHistoryStatus(message, kind) {
+        importHistoryStatusEl.textContent = message || "";
+        importHistoryStatusEl.className = kind ? kind : "";
+      }
+
+      function clearImportHistoryResults() {
+        importHistoryResultsEl.innerHTML = "";
+      }
+
+      function formatImportHistoryCell(value) {
+        if (value === null || value === undefined) return "—";
+        return String(value);
+      }
+
+      function renderImportHistory(body) {
+        clearImportHistoryResults();
+        var rows = body && Array.isArray(body.rows) ? body.rows : [];
+        if (rows.length === 0) {
+          var empty = document.createElement("p");
+          empty.className = "domain-empty";
+          empty.textContent = "No import attempts recorded.";
+          importHistoryResultsEl.appendChild(empty);
+          return;
+        }
+        if (body && body.truncated === true) {
+          var note = document.createElement("p");
+          note.className = "domain-empty";
+          note.textContent = "Showing the most recent rows (truncated).";
+          importHistoryResultsEl.appendChild(note);
+        }
+        var table = document.createElement("table");
+        var thead = document.createElement("thead");
+        var headRow = document.createElement("tr");
+        IMPORT_HISTORY_COLUMNS.forEach(function (col) {
+          var th = document.createElement("th");
+          th.textContent = col;
+          headRow.appendChild(th);
+        });
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+        var tbody = document.createElement("tbody");
+        rows.forEach(function (row) {
+          var tr = document.createElement("tr");
+          IMPORT_HISTORY_COLUMNS.forEach(function (col) {
+            var td = document.createElement("td");
+            if (col === "outcome") {
+              var badge = document.createElement("span");
+              badge.textContent = formatImportHistoryCell(row && row[col]);
+              td.appendChild(badge);
+            } else {
+              td.textContent = formatImportHistoryCell(row && row[col]);
+            }
+            tr.appendChild(td);
+          });
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        importHistoryResultsEl.appendChild(table);
+      }
+
+      importHistoryBtn.addEventListener("click", function () {
+        setImportHistoryStatus("Loading…");
+        clearImportHistoryResults();
+        fetch("/admin/import-history", { headers: authHeaders() })
+          .then(function (r) {
+            if (r.status === 401) {
+              setAuthBannerVisible(true);
+              setImportHistoryStatus("Load failed: unauthorized.", "error");
+              return null;
+            }
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            return r.json();
+          })
+          .then(function (body) {
+            if (body === null) return;
+            renderImportHistory(body);
+            setImportHistoryStatus("Loaded.", "ok");
+          })
+          .catch(function () {
+            setImportHistoryStatus("Load failed.", "error");
           });
       });
 

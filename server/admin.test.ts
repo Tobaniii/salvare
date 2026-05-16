@@ -167,4 +167,23 @@ describe("getAdminHtml", () => {
     expect(html).not.toContain("source-status-edit");
     expect(html).not.toContain("Refresh source");
   });
+
+  it("includes the read-only Import history section with a Load button and result containers (v0.46.0)", () => {
+    const html = getAdminHtml();
+    expect(html).toContain("Import history");
+    expect(html).toContain('id="import-history-btn"');
+    expect(html).toContain('id="import-history-status"');
+    expect(html).toContain('id="import-history-results"');
+    expect(html).toContain("Load history");
+    expect(html).toContain("/admin/import-history");
+    expect(html).toContain("Read-only");
+  });
+
+  it("does not include any import-history mutation / delete / refresh controls", () => {
+    const html = getAdminHtml();
+    expect(html).not.toContain("import-history-delete");
+    expect(html).not.toContain("import-history-edit");
+    expect(html).not.toContain("import-history-import");
+    expect(html).not.toContain("import-history-apply");
+  });
 });

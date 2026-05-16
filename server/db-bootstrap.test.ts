@@ -38,6 +38,17 @@ describe("importSeed", () => {
     expect(count).toBe(3);
   });
 
+  it("never writes the import_history audit table (v0.46.0)", () => {
+    const db = memoryDb();
+    importSeed(db, { "a.com": ["A1", "A2"], "b.com": ["B1"] });
+    const count = (
+      db.prepare("SELECT COUNT(*) AS c FROM import_history").get() as {
+        c: number;
+      }
+    ).c;
+    expect(count).toBe(0);
+  });
+
   it("is idempotent across reruns", () => {
     const db = memoryDb();
     importSeed(db, { "a.com": ["A1", "A2"] });

@@ -266,4 +266,99 @@ describe("verifyDatabase", () => {
     expect(report).not.toContain("Authorization");
     expect(report).toContain("schema version:");
   });
+
+  // ----- v0.46.0 import_history -----
+
+  it("expects schema version 5 on a fresh DB", () => {
+    const db = makeDb();
+    const result = verifyDatabase(db);
+    expect(result.schemaVersion).toBe("5");
+    expect(EXPECTED_SCHEMA_VERSION).toBe("5");
+    expect(result.ok).toBe(true);
+  });
+
+  it("includes import_history in tables_present and its indexes in indexes_present", () => {
+    const db = makeDb();
+    const result = verifyDatabase(db);
+    expect(result.ok).toBe(true);
+    db.exec("DROP TABLE import_history");
+    const dropped = verifyDatabase(db);
+    expect(dropped.ok).toBe(false);
+    expect(
+      dropped.checks.find((c) => c.name === "tables_present")?.ok,
+    ).toBe(false);
+  });
+
+  it("reports a missing import_history index as a failed check", () => {
+    const db = makeDb();
+    db.exec("DROP INDEX idx_import_history_provider_attempt");
+    const result = verifyDatabase(db);
+    expect(result.ok).toBe(false);
+    expect(
+      result.checks.find((c) => c.name === "indexes_present")?.ok,
+    ).toBe(false);
+
+    const db2 = makeDb();
+    db2.exec("DROP INDEX idx_import_history_source");
+    const result2 = verifyDatabase(db2);
+    expect(result2.ok).toBe(false);
+    expect(
+      result2.checks.find((c) => c.name === "indexes_present")?.ok,
+    ).toBe(false);
+  });
+
+  it("orphan check: a NULL source_id row is allowed (not flagged)", () => {
+    const db = makeDb();
+    db.prepare(
+      `INSERT INTO import_history
+         (provider_id, source_id, domain, attempted_at, outcome,
+          candidates_accepted, codes_imported, provenance_recorded,
+          rejected_count, error_code, duration_ms)
+         VALUES ('awin', NULL, 'shop.example', '2026-05-16T00:00:00.000Z',
+                 'error', 0, 0, 0, 0, 'disabled', 5)`,
+    ).run();
+    const result = verifyDatabase(db);
+    const orphan = result.checks.find(
+      (c) => c.name === "import_history_source_orphans",
+    );
+    expect(orphan?.ok).toBe(true);
+    expect(result.ok).toBe(true);
+  });
+
+  it("orphan check: a NON-NULL source_id with no matching coupon_sources row fails", () => {
+    const db = makeDb();
+    db.pragma("foreign_keys = OFF");
+    db.prepare(
+      `INSERT INTO import_history
+         (provider_id, source_id, domain, attempted_at, outcome,
+          candidates_accepted, codes_imported, provenance_recorded,
+          rejected_count, error_code, duration_ms)
+         VALUES ('awin', 'no-such-source', 'shop.example',
+                 '2026-05-16T00:00:00.000Z', 'ok', 1, 1, 1, 0, NULL, 7)`,
+    ).run();
+    db.pragma("foreign_keys = ON");
+    const result = verifyDatabase(db);
+    const orphan = result.checks.find(
+      (c) => c.name === "import_history_source_orphans",
+    );
+    expect(orphan?.ok).toBe(false);
+    expect(result.ok).toBe(false);
+  });
+
+  it("a synthesized v4-shaped DB (no import_history, schema_meta='4') fails verify", () => {
+    const db = makeDb();
+    db.exec("DROP TABLE import_history");
+    db.prepare(
+      "UPDATE schema_meta SET value = '4' WHERE key = 'version'",
+    ).run();
+    const result = verifyDatabase(db);
+    expect(result.ok).toBe(false);
+    expect(result.schemaVersion).toBe("4");
+    expect(
+      result.checks.find((c) => c.name === "schema_version")?.ok,
+    ).toBe(false);
+    expect(
+      result.checks.find((c) => c.name === "tables_present")?.ok,
+    ).toBe(false);
+  });
 });

@@ -181,8 +181,8 @@ describe("initSchema", () => {
     expect(count).toBe(3);
   });
 
-  it("EXPECTED_SCHEMA_VERSION reflects the v0.33.0 bump", () => {
-    expect(EXPECTED_SCHEMA_VERSION).toBe("4");
+  it("EXPECTED_SCHEMA_VERSION reflects the v0.46.0 import_history bump", () => {
+    expect(EXPECTED_SCHEMA_VERSION).toBe("5");
   });
 
   it("creates source_cache and source_fetch_log tables (v0.29.0)", () => {

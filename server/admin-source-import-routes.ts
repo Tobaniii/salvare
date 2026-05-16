@@ -22,7 +22,10 @@
 
 import { sendJson, readJsonBody, type RouteContext } from "./http-helpers";
 import { validateDomain } from "./source-adapters";
-import { importProviderCandidates } from "./db-source-import";
+import {
+  importProviderCandidates,
+  recordProviderImportAttempt,
+} from "./db-source-import";
 import {
   extractProviderId,
   type ProviderRouteResolver,
@@ -139,10 +142,28 @@ export async function handleAdminSourceImportRoute(
   const descriptor = resolved.descriptor;
   const provider = descriptor.providerId;
 
+  // v0.46.0 — audit only REAL import attempts (post auth + resolution). The
+  // start mark wraps the adapter call + DB import so duration covers the
+  // actual work. provider_id written is always the registry-resolved
+  // descriptor value, never the client/path-extracted segment.
+  const startMs = Date.now();
+
   let result: ProviderAdapterResult;
   try {
     result = await resolved.closure({ domain });
   } catch {
+    recordProviderImportAttempt(db, {
+      providerId: descriptor.providerId,
+      sourceId: null,
+      domain,
+      outcome: "error",
+      candidatesAccepted: 0,
+      codesImported: 0,
+      provenanceRecorded: 0,
+      rejectedCount: 0,
+      errorCode: "fetch_error",
+      durationMs: Date.now() - startMs,
+    });
     sendJson(res, 200, {
       ok: false,
       provider,
@@ -160,6 +181,20 @@ export async function handleAdminSourceImportRoute(
   if (!result.ok) {
     const reason = safeReason(result.errorCode);
     const disabled = reason === "disabled" || reason === "missing_api_key";
+    // error_code is the exact classified token the response builder emits
+    // (safeReason → pre-allowlisted), never a raw exception string.
+    recordProviderImportAttempt(db, {
+      providerId: descriptor.providerId,
+      sourceId: null,
+      domain,
+      outcome: "error",
+      candidatesAccepted: 0,
+      codesImported: 0,
+      provenanceRecorded: 0,
+      rejectedCount: 0,
+      errorCode: reason,
+      durationMs: Date.now() - startMs,
+    });
     const responseBody: Record<string, unknown> = {
       ok: false,
       provider,
@@ -206,6 +241,21 @@ export async function handleAdminSourceImportRoute(
     sourceType: descriptor.sourceType,
     domain,
     candidates: accepted,
+  });
+
+  // Parent coupon_sources row is guaranteed here (importProviderCandidates
+  // runs ensureCouponSource unconditionally), so source_id is safe to set.
+  recordProviderImportAttempt(db, {
+    providerId: descriptor.providerId,
+    sourceId: descriptor.sourceId,
+    domain,
+    outcome: stats.codesImported > 0 ? "ok" : "empty",
+    candidatesAccepted: stats.candidatesAccepted,
+    codesImported: stats.codesImported,
+    provenanceRecorded: stats.provenanceRecorded,
+    rejectedCount: rejected,
+    errorCode: null,
+    durationMs: Date.now() - startMs,
   });
 
   sendJson(res, 200, {

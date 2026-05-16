@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 export type Db = Database.Database;
 
-export const EXPECTED_SCHEMA_VERSION = "4";
+export const EXPECTED_SCHEMA_VERSION = "5";
 
 export const COUPON_SOURCE_TYPES = [
   "manual",
@@ -109,6 +109,27 @@ const SCHEMA_SQL = `
 
   CREATE INDEX IF NOT EXISTS idx_source_fetch_log_source_key_attempt
     ON source_fetch_log(source_id, cache_key, attempted_at);
+
+  CREATE TABLE IF NOT EXISTS import_history (
+    id INTEGER PRIMARY KEY,
+    provider_id TEXT NOT NULL,
+    source_id TEXT REFERENCES coupon_sources(id) ON DELETE RESTRICT,
+    domain TEXT NOT NULL,
+    attempted_at TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK (outcome IN ('ok','empty','error')),
+    candidates_accepted INTEGER NOT NULL,
+    codes_imported INTEGER NOT NULL,
+    provenance_recorded INTEGER NOT NULL,
+    rejected_count INTEGER NOT NULL,
+    error_code TEXT,
+    duration_ms INTEGER
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_import_history_provider_attempt
+    ON import_history(provider_id, attempted_at);
+
+  CREATE INDEX IF NOT EXISTS idx_import_history_source
+    ON import_history(source_id);
 
   CREATE TABLE IF NOT EXISTS schema_meta (
     key TEXT PRIMARY KEY,
