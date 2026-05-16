@@ -5,9 +5,12 @@
 // status accessors + provider-typed preview factories. It exposes NO admin
 // HTTP route, NO CLI flag for multi-provider selection, NO public response
 // shape, and NO admin UI provider selector — those are deferred to a later
-// milestone. The registry exists so future milestones can flip capability
-// gates (importSupported, cacheSupported, userExposed) without rewriting
-// adapter dispatch.
+// milestone. The registry exists so future milestones can flip the unified
+// `ProviderActivation` gates (enabled, previewEnabled, importEnabled,
+// userExposed, cacheSupported, schedulerSupported) without rewriting
+// adapter dispatch. Activation flags are compile-time constants — there is
+// NO env/DB/runtime toggling; exposing a provider later = flip the constant
+// and ship.
 //
 // Registered in v0.43.0:
 //  - awin    (v0.32 spike + v0.33 cache short-circuit + v0.34/v0.36 admin
@@ -62,21 +65,41 @@ import type {
 
 export type ProviderId = "awin" | "impact";
 
-export interface ProviderCapabilities {
+export interface ProviderActivation {
+  /**
+   * Master gate. When not exactly `true`, `resolveProvider` denies with
+   * `provider_disabled` *before* the userExposed/capability checks. Both
+   * registered providers ship `true`; the disabled path is exercised only
+   * by test-doubles / future use (the framework mechanism, not a switch
+   * being flipped in this milestone).
+   */
+  readonly enabled: boolean;
   /** Adapter exposes a `fetchAndParse` preview surface. */
-  readonly preview: boolean;
+  readonly previewEnabled: boolean;
   /**
    * Provider is wired into the existing additive admin/CLI import path. When
    * `false`, the provider is registry-internal only (no admin URL, no CLI
    * support, no `coupon_code_sources` writes via the import helper).
    */
-  readonly importSupported: boolean;
+  readonly importEnabled: boolean;
+  /**
+   * True iff the provider is wired into the current admin UI / CLI surface.
+   * The gate for `/admin/source-providers` — never echoed as a field in
+   * that projection. v0.48 keeps Awin user-exposed and Impact internal.
+   */
+  readonly userExposed: boolean;
   /**
    * Adapter participates in the v0.33-style cache-read short-circuit. When
    * `false`, the adapter writes cache rows on success but does not read them
    * back to short-circuit subsequent fetches.
    */
   readonly cacheSupported: boolean;
+  /**
+   * Declared-only metadata for a future scheduler milestone (v0.52). NO
+   * consumer and NO enforcement in v0.48 — pure registry metadata. Both
+   * registered providers ship `false`.
+   */
+  readonly schedulerSupported: boolean;
 }
 
 export interface ProviderDescriptorMetadata {
@@ -84,12 +107,7 @@ export interface ProviderDescriptorMetadata {
   readonly sourceId: ProviderId;
   readonly displayName: string;
   readonly sourceType: CouponSourceType;
-  readonly capabilities: ProviderCapabilities;
-  /**
-   * True iff the provider is wired into the current admin UI / CLI surface
-   * in this milestone. v0.43 keeps Awin user-exposed and Impact internal.
-   */
-  readonly userExposed: boolean;
+  readonly activation: ProviderActivation;
 }
 
 export type ProviderStatusFlags = SourceStatusProviderInfo;
@@ -142,6 +160,7 @@ export type ResolvePurpose = "preview" | "import";
 
 export type ResolveDenyReason =
   | "unknown_provider"
+  | "provider_disabled"
   | "not_user_exposed"
   | "capability_unsupported";
 
@@ -158,8 +177,9 @@ export interface ProviderRegistry {
   list(): ProviderDescriptorMetadata[];
   /**
    * Resolve a provider for a user-exposed preview/import call. Fail-closed
-   * (never throws raw): unknown id -> `unknown_provider`; a registry-internal
-   * provider (`userExposed !== true`) -> `not_user_exposed`; a provider that
+   * (never throws raw) via `classifyActivation`: unknown id ->
+   * `unknown_provider`; `activation.enabled !== true` -> `provider_disabled`;
+   * `activation.userExposed !== true` -> `not_user_exposed`; a provider that
    * lacks the capability for `purpose` -> `capability_unsupported`. On
    * success returns the registry-authoritative metadata descriptor plus a
    * generic preview closure. Impact (`userExposed:false`) is denied for
@@ -194,8 +214,14 @@ const AWIN_METADATA = {
   sourceId: "awin",
   displayName: "Awin Offers API",
   sourceType: "api",
-  capabilities: { preview: true, importSupported: true, cacheSupported: true },
-  userExposed: true,
+  activation: {
+    enabled: true,
+    previewEnabled: true,
+    importEnabled: true,
+    userExposed: true,
+    cacheSupported: true,
+    schedulerSupported: false,
+  },
 } as const satisfies ProviderDescriptorMetadata;
 
 const IMPACT_METADATA = {
@@ -203,12 +229,19 @@ const IMPACT_METADATA = {
   sourceId: "impact",
   displayName: "impact.com Promotions API",
   sourceType: "api",
-  // v0.47.0 — Impact now participates in the shared cache-read
-  // short-circuit (internal capability only). `importSupported`/
-  // `userExposed` stay false: Impact remains unreachable on the user
-  // surface (v0.48/v0.49).
-  capabilities: { preview: true, importSupported: false, cacheSupported: true },
-  userExposed: false,
+  // v0.48.0 — Impact participates in the shared cache-read short-circuit
+  // (internal capability only). `importEnabled`/`userExposed` stay false:
+  // Impact remains unreachable on the user surface (v0.49). `enabled` is
+  // true — Impact is not switched off; `enabled:false` is the framework
+  // mechanism, exercised only by test-doubles.
+  activation: {
+    enabled: true,
+    previewEnabled: true,
+    importEnabled: false,
+    userExposed: false,
+    cacheSupported: true,
+    schedulerSupported: false,
+  },
 } as const satisfies ProviderDescriptorMetadata;
 
 // v0.47.0 — both providers derive status identically
@@ -287,9 +320,31 @@ function metadataOnly(
     sourceId: descriptor.sourceId,
     displayName: descriptor.displayName,
     sourceType: descriptor.sourceType,
-    capabilities: { ...descriptor.capabilities },
-    userExposed: descriptor.userExposed,
+    activation: { ...descriptor.activation },
   };
+}
+
+/**
+ * Pure activation precedence. `null` activation === unknown provider. Fail
+ * closed (strict `!== true` / `=== true`, so missing/undefined denies).
+ * Precedence: `unknown_provider` > `provider_disabled` > `not_user_exposed`
+ * > `capability_unsupported`. Extracted from `resolveProvider` so the full
+ * enabled×userExposed×previewEnabled×importEnabled matrix is testable
+ * without the hardcoded awin/impact dispatch. Behavior-preserving.
+ */
+export function classifyActivation(
+  activation: ProviderActivation | null,
+  purpose: ResolvePurpose,
+): ResolveDenyReason | "ok" {
+  if (activation === null) return "unknown_provider";
+  if (activation.enabled !== true) return "provider_disabled";
+  if (activation.userExposed !== true) return "not_user_exposed";
+  const capable =
+    purpose === "preview"
+      ? activation.previewEnabled === true
+      : activation.importEnabled === true;
+  if (!capable) return "capability_unsupported";
+  return "ok";
 }
 
 export function createProviderRegistry(): ProviderRegistry {
@@ -318,15 +373,9 @@ export function createProviderRegistry(): ProviderRegistry {
       if (descriptor === null) {
         return { ok: false, reason: "unknown_provider" };
       }
-      if (descriptor.userExposed !== true) {
-        return { ok: false, reason: "not_user_exposed" };
-      }
-      const capable =
-        purpose === "preview"
-          ? descriptor.capabilities.preview === true
-          : descriptor.capabilities.importSupported === true;
-      if (!capable) {
-        return { ok: false, reason: "capability_unsupported" };
+      const verdict = classifyActivation(descriptor.activation, purpose);
+      if (verdict !== "ok") {
+        return { ok: false, reason: verdict };
       }
       // Per-known-provider closure construction. The generic deps shape is
       // structurally identical to each descriptor's typed deps (the fetcher

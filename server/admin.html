@@ -547,6 +547,17 @@
       <div id="source-import-summary"></div>
     </section>
 
+    <section class="source-preview-bar" aria-label="Provider activation">
+      <h2>Provider activation</h2>
+      <p class="domain-empty">
+        Read-only view of the registry activation flags for user-exposed
+        providers, from <code>GET /admin/source-providers</code>. Compile-time
+        constants — <strong>not</strong> toggles. Hidden / unexposed
+        providers never appear here.
+      </p>
+      <div id="source-provider-activation"></div>
+    </section>
+
     <section class="source-preview-bar" aria-label="Stored source claims">
       <h2>Stored source claims (provenance)</h2>
       <p class="domain-empty">
@@ -1338,6 +1349,9 @@
       var sourcePreviewCapabilitiesEl = document.getElementById(
         "source-preview-capabilities",
       );
+      var sourceProviderActivationEl = document.getElementById(
+        "source-provider-activation",
+      );
       var sourcePreviewBtn = document.getElementById("source-preview-btn");
       var sourcePreviewStatusEl = document.getElementById(
         "source-preview-status",
@@ -1365,10 +1379,13 @@
           sourceId: "awin",
           displayName: "Awin",
           sourceType: "api",
-          capabilities: {
-            preview: true,
-            importSupported: true,
+          activation: {
+            enabled: true,
+            previewEnabled: true,
+            importEnabled: true,
+            userExposed: true,
             cacheSupported: true,
+            schedulerSupported: false,
           },
         },
       ];
@@ -1384,7 +1401,7 @@
       function sanitizeProviderEntry(entry) {
         if (!entry || typeof entry !== "object") return null;
         if (!isAllowedProviderId(entry.providerId)) return null;
-        var caps = entry.capabilities || {};
+        var act = entry.activation || {};
         return {
           providerId: entry.providerId,
           sourceId: isAllowedProviderId(entry.sourceId)
@@ -1396,10 +1413,12 @@
               : entry.providerId,
           sourceType:
             typeof entry.sourceType === "string" ? entry.sourceType : "",
-          capabilities: {
-            preview: caps.preview === true,
-            importSupported: caps.importSupported === true,
-            cacheSupported: caps.cacheSupported === true,
+          activation: {
+            enabled: act.enabled === true,
+            previewEnabled: act.previewEnabled === true,
+            importEnabled: act.importEnabled === true,
+            cacheSupported: act.cacheSupported === true,
+            schedulerSupported: act.schedulerSupported === true,
           },
         };
       }
@@ -1416,13 +1435,58 @@
           sourcePreviewCapabilitiesEl.textContent = "";
           return;
         }
-        var caps = provider.capabilities;
+        var act = provider.activation;
         var tokens = [];
-        if (caps.preview) tokens.push("preview");
-        if (caps.importSupported) tokens.push("import");
-        if (caps.cacheSupported) tokens.push("cache");
+        if (act.previewEnabled) tokens.push("preview");
+        if (act.importEnabled) tokens.push("import");
+        if (act.cacheSupported) tokens.push("cache");
         sourcePreviewCapabilitiesEl.textContent =
           "Capabilities: " + (tokens.length > 0 ? tokens.join(", ") : "(none)");
+      }
+
+      // Read-only activation view. Renders the 5 projected flags per
+      // user-exposed provider via textContent only (no innerHTML with
+      // response data). Hidden providers were already filtered server-side
+      // and dropped again by the client allowlist, so this only ever lists
+      // Awin in v0.48.
+      function renderProviderActivation() {
+        if (!sourceProviderActivationEl) return;
+        sourceProviderActivationEl.textContent = "";
+        var opts = sourcePreviewProviderSelect.options;
+        if (!opts || opts.length === 0) {
+          sourceProviderActivationEl.textContent = "No providers.";
+          return;
+        }
+        for (var i = 0; i < opts.length; i++) {
+          var provider = providersById[opts[i].value];
+          if (!provider) continue;
+          var act = provider.activation;
+          var row = document.createElement("div");
+          row.className = "provider-activation-row";
+
+          var head = document.createElement("strong");
+          head.textContent =
+            provider.displayName + " (" + provider.providerId + ")";
+          row.appendChild(head);
+
+          var flags = document.createElement("div");
+          flags.textContent =
+            "enabled=" + (act.enabled === true) +
+            ", previewEnabled=" + (act.previewEnabled === true) +
+            ", importEnabled=" + (act.importEnabled === true) +
+            ", cacheSupported=" + (act.cacheSupported === true) +
+            ", schedulerSupported=" + (act.schedulerSupported === true);
+          row.appendChild(flags);
+
+          var state = document.createElement("div");
+          state.textContent =
+            act.enabled === true
+              ? "State: active"
+              : "State: disabled (provider_disabled — denied for all purposes)";
+          row.appendChild(state);
+
+          sourceProviderActivationEl.appendChild(row);
+        }
       }
 
       function populateProviderSelect(providers) {
@@ -1448,6 +1512,7 @@
           sourcePreviewProviderSelect.value = sanitized[0].providerId;
         }
         renderProviderCapabilities();
+        renderProviderActivation();
         refreshSourceImportEnabled();
       }
 
@@ -1629,7 +1694,7 @@
         var provider = getSelectedProvider();
         var providerSupportsImport =
           provider !== null &&
-          provider.capabilities.importSupported === true;
+          provider.activation.importEnabled === true;
         var providerStillSelected =
           provider !== null &&
           lastPreviewedProviderId !== null &&
@@ -1776,7 +1841,7 @@
         if (sourceImportConfirmInput.value.trim() !== "IMPORT") return;
         if (!isAllowedProviderId(lastPreviewedProviderId)) return;
         var provider = providersById[lastPreviewedProviderId];
-        if (!provider || provider.capabilities.importSupported !== true) {
+        if (!provider || provider.activation.importEnabled !== true) {
           return;
         }
         sourceImportBtn.disabled = true;

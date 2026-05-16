@@ -12,7 +12,9 @@
 // Per docs/SOURCE_POLICY.md §6 and the redaction rules in
 // docs/SOURCE_PROVIDER_RESEARCH.md §5, the response is built from an
 // explicit allowlist below: `{ providerId, displayName, sourceId,
-// sourceType, capabilities: { preview, importSupported, cacheSupported } }`.
+// sourceType, activation: { enabled, previewEnabled, importEnabled,
+// cacheSupported, schedulerSupported } }`. The projected `activation` is a
+// deliberate 5-field subset of the registry's 6-field `ProviderActivation`:
 // `userExposed` is the gate, not a returned field. The route never echoes
 // the admin token, the API key, the `Authorization` header, cookies,
 // `localStorage`, env values, the DB path, raw provider payloads, raw HTML,
@@ -30,10 +32,12 @@ interface SafeProviderEntry {
   sourceId: string;
   displayName: string;
   sourceType: string;
-  capabilities: {
-    preview: boolean;
-    importSupported: boolean;
+  activation: {
+    enabled: boolean;
+    previewEnabled: boolean;
+    importEnabled: boolean;
     cacheSupported: boolean;
+    schedulerSupported: boolean;
   };
 }
 
@@ -43,10 +47,13 @@ function buildSafeEntry(meta: ProviderDescriptorMetadata): SafeProviderEntry {
     sourceId: meta.sourceId,
     displayName: meta.displayName,
     sourceType: meta.sourceType,
-    capabilities: {
-      preview: meta.capabilities.preview === true,
-      importSupported: meta.capabilities.importSupported === true,
-      cacheSupported: meta.capabilities.cacheSupported === true,
+    // 5-field subset — `userExposed` is the filter gate, never echoed.
+    activation: {
+      enabled: meta.activation.enabled === true,
+      previewEnabled: meta.activation.previewEnabled === true,
+      importEnabled: meta.activation.importEnabled === true,
+      cacheSupported: meta.activation.cacheSupported === true,
+      schedulerSupported: meta.activation.schedulerSupported === true,
     },
   };
 }
@@ -63,7 +70,7 @@ export function handleAdminSourceProvidersRoute(
   if (!requireAuth(req, res)) return true;
 
   const providers = list()
-    .filter((meta) => meta.userExposed === true)
+    .filter((meta) => meta.activation.userExposed === true)
     .map(buildSafeEntry);
 
   sendJson(res, 200, { providers });

@@ -118,10 +118,10 @@ export async function handleAdminSourceImportRoute(
 
   const resolved = resolveProvider(providerId, "import");
   if (!resolved.ok) {
-    // Valid-charset but registry-denied (unknown / not user-exposed /
-    // importSupported:false). v0.44 disabled-envelope shape, HTTP 200, no
-    // `disabled:true`. This is the fail-closed gate that keeps impact
-    // (importSupported:false, userExposed:false) unreachable here.
+    // Valid-charset but registry-denied (unknown / provider_disabled / not
+    // user-exposed / importEnabled:false). v0.44 disabled-envelope shape,
+    // HTTP 200, no `disabled:true`. This is the fail-closed gate that keeps
+    // impact (importEnabled:false, userExposed:false) unreachable here.
     sendJson(res, 200, {
       ok: false,
       provider: providerId,

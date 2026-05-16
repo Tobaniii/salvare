@@ -39,7 +39,7 @@ import {
 } from "./source-provider-registry";
 
 // v0.43.0 — provider dispatch consults the internal registry. Only providers
-// whose descriptor sets `capabilities.importSupported: true` are accepted on
+// whose descriptor sets `activation.importEnabled: true` are accepted on
 // the source-refresh CLI; impact (v0.42) is registry-internal and remains
 // rejected here as `unknown_provider`. A later milestone will widen the
 // allowlist once a generic provider-registry import path lands.
@@ -48,7 +48,7 @@ function buildSupportedProviders(
 ): readonly string[] {
   return registry
     .list()
-    .filter((d) => d.capabilities.importSupported)
+    .filter((d) => d.activation.importEnabled)
     .map((d) => d.providerId);
 }
 

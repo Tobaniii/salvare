@@ -121,7 +121,7 @@ describe("GET /admin/source-providers — body shape (default registry)", () => 
     expect(ids).toEqual(["awin"]);
   });
 
-  it("returns only allowlisted top-level + capability fields", async () => {
+  it("returns only allowlisted top-level + activation fields", async () => {
     const res = await get(h.baseUrl);
     const body = await res.json();
     expect(Object.keys(body)).toEqual(["providers"]);
@@ -129,25 +129,35 @@ describe("GET /admin/source-providers — body shape (default registry)", () => 
     for (const entry of body.providers as Record<string, unknown>[]) {
       expect(Object.keys(entry).sort()).toEqual(
         [
-          "capabilities",
+          "activation",
           "displayName",
           "providerId",
           "sourceId",
           "sourceType",
         ].sort(),
       );
-      const caps = entry.capabilities as Record<string, unknown>;
-      expect(Object.keys(caps).sort()).toEqual(
-        ["cacheSupported", "importSupported", "preview"].sort(),
+      const act = entry.activation as Record<string, unknown>;
+      // 5-field subset — userExposed is the filter gate, never echoed.
+      expect(Object.keys(act).sort()).toEqual(
+        [
+          "cacheSupported",
+          "enabled",
+          "importEnabled",
+          "previewEnabled",
+          "schedulerSupported",
+        ].sort(),
       );
-      expect(typeof caps.preview).toBe("boolean");
-      expect(typeof caps.importSupported).toBe("boolean");
-      expect(typeof caps.cacheSupported).toBe("boolean");
+      expect(typeof act.enabled).toBe("boolean");
+      expect(typeof act.previewEnabled).toBe("boolean");
+      expect(typeof act.importEnabled).toBe("boolean");
+      expect(typeof act.cacheSupported).toBe("boolean");
+      expect(typeof act.schedulerSupported).toBe("boolean");
+      expect("userExposed" in act).toBe(false);
       expect(typeof entry.displayName).toBe("string");
     }
   });
 
-  it("Awin entry carries full capabilities", async () => {
+  it("Awin entry carries full activation (no userExposed)", async () => {
     const res = await get(h.baseUrl);
     const body = await res.json();
     const awin = body.providers.find(
@@ -159,10 +169,12 @@ describe("GET /admin/source-providers — body shape (default registry)", () => 
       sourceId: "awin",
       displayName: "Awin Offers API",
       sourceType: "api",
-      capabilities: {
-        preview: true,
-        importSupported: true,
+      activation: {
+        enabled: true,
+        previewEnabled: true,
+        importEnabled: true,
         cacheSupported: true,
+        schedulerSupported: false,
       },
     });
   });
@@ -174,11 +186,11 @@ describe("GET /admin/source-providers — body shape (default registry)", () => 
     expect(raw).not.toContain("Impact");
   });
 
-  it("registry.list().filter(userExposed) excludes impact", () => {
+  it("registry.list().filter(activation.userExposed) excludes impact", () => {
     const registry = createProviderRegistry();
     const exposed = registry
       .list()
-      .filter((d) => d.userExposed === true)
+      .filter((d) => d.activation.userExposed === true)
       .map((d) => d.providerId);
     expect(exposed).toEqual(["awin"]);
   });
@@ -250,24 +262,28 @@ describe("GET /admin/source-providers — redaction", () => {
           sourceId: "awin",
           displayName: "Awin Offers API",
           sourceType: "api",
-          capabilities: {
-            preview: true,
-            importSupported: true,
+          activation: {
+            enabled: true,
+            previewEnabled: true,
+            importEnabled: true,
+            userExposed: true,
             cacheSupported: true,
+            schedulerSupported: false,
           },
-          userExposed: true,
         },
         {
           providerId: "impact",
           sourceId: "impact",
           displayName: "impact.com Promotions API",
           sourceType: "api",
-          capabilities: {
-            preview: true,
-            importSupported: false,
+          activation: {
+            enabled: true,
+            previewEnabled: true,
+            importEnabled: false,
+            userExposed: false,
             cacheSupported: false,
+            schedulerSupported: false,
           },
-          userExposed: false,
         },
       ],
     });
