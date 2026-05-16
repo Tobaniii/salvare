@@ -677,3 +677,325 @@ describe("createImpactAdapter — edge cases fixture", () => {
     expectNoSecretsLeak(result);
   });
 });
+
+// ---------------------------------------------------------------------------
+// v0.47.0 — Impact cache-read short-circuit parity (none existed pre-v0.47).
+// Mirrors the Awin v0.33 cache suite: Impact now flows through the shared
+// `runProviderPipeline` with `cacheSupported: true`.
+// ---------------------------------------------------------------------------
+
+describe("createImpactAdapter — cache-read short-circuit (v0.47.0 parity)", () => {
+  async function primeCache(db: Db): Promise<void> {
+    const { fetcher } = fetcherFromFixture(loadFixture("impact-offers-ok.json"));
+    const adapter = createImpactAdapter({
+      config: enabledConfig(),
+      fetcher,
+      db,
+      clock: fixedClock(),
+    });
+    await adapter.fetchAndParse({ domain: "shop.example" });
+  }
+
+  it("returns candidates from fresh cache without calling fetcher", async () => {
+    const db = makeDb();
+    await primeCache(db);
+
+    let called = 0;
+    const fetcher: ImpactFetcher = async () => {
+      called += 1;
+      return { status: 200, body: "{}" };
+    };
+    const adapter = createImpactAdapter({
+      config: enabledConfig(),
+      fetcher,
+      db,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "shop.example" });
+
+    expect(called).toBe(0);
+    expect(result.ok).toBe(true);
+    expect(result.cacheHit).toBe(true);
+    expect(result.fetched).toBe(false);
+    expect(result.outcome).toBe("cache_hit");
+    expect(result.candidates).toHaveLength(3);
+    expect(result.candidates[0]).toMatchObject({
+      domain: "shop.example",
+      code: "IMPACT10",
+      sourceId: "impact",
+    });
+    expectNoSecretsLeak(result);
+  });
+
+  it("writes a single cache_hit fetch_log row and no new cache row", async () => {
+    const db = makeDb();
+    await primeCache(db);
+    const cacheBefore = (
+      db.prepare("SELECT COUNT(*) AS n FROM source_cache").get() as { n: number }
+    ).n;
+    const logBefore = (
+      db.prepare("SELECT COUNT(*) AS n FROM source_fetch_log").get() as {
+        n: number;
+      }
+    ).n;
+
+    const fetcher: ImpactFetcher = async () => {
+      throw new Error("should not be called");
+    };
+    const adapter = createImpactAdapter({
+      config: enabledConfig(),
+      fetcher,
+      db,
+      clock: fixedClock(),
+    });
+    await adapter.fetchAndParse({ domain: "shop.example" });
+
+    const cacheAfter = (
+      db.prepare("SELECT COUNT(*) AS n FROM source_cache").get() as { n: number }
+    ).n;
+    const logAfter = db
+      .prepare(
+        "SELECT outcome, status_code, error_code, duration_ms FROM source_fetch_log ORDER BY id ASC",
+      )
+      .all() as Array<{
+      outcome: string;
+      status_code: number | null;
+      error_code: string | null;
+      duration_ms: number | null;
+    }>;
+
+    expect(cacheAfter).toBe(cacheBefore);
+    expect(logAfter).toHaveLength(logBefore + 1);
+    const hit = logAfter[logAfter.length - 1];
+    expect(hit.outcome).toBe("cache_hit");
+    expect(hit.status_code).toBeNull();
+    expect(hit.error_code).toBeNull();
+    expect(typeof hit.duration_ms).toBe("number");
+  });
+
+  it("falls through to fetcher when cache is stale", async () => {
+    const db = makeDb();
+    await primeCache(db);
+    db.prepare(
+      `UPDATE source_cache SET expires_at = ? WHERE source_id = ?`,
+    ).run("2026-01-01T00:00:00.000Z", "impact");
+
+    let called = 0;
+    const { fetcher } = fetcherFromFixture(loadFixture("impact-offers-ok.json"));
+    const wrappedFetcher: ImpactFetcher = async (url, init) => {
+      called += 1;
+      return fetcher(url, init);
+    };
+    const adapter = createImpactAdapter({
+      config: enabledConfig(),
+      fetcher: wrappedFetcher,
+      db,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "shop.example" });
+
+    expect(called).toBe(1);
+    expect(result.cacheHit).toBe(false);
+    expect(result.fetched).toBe(true);
+    expect(result.outcome).toBe("ok");
+  });
+
+  it("falls through to fetcher when no cache row exists", async () => {
+    const db = makeDb();
+    let called = 0;
+    const { fetcher } = fetcherFromFixture(loadFixture("impact-offers-ok.json"));
+    const wrappedFetcher: ImpactFetcher = async (url, init) => {
+      called += 1;
+      return fetcher(url, init);
+    };
+    const adapter = createImpactAdapter({
+      config: enabledConfig(),
+      fetcher: wrappedFetcher,
+      db,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "shop.example" });
+    expect(called).toBe(1);
+    expect(result.cacheHit).toBe(false);
+    expect(result.fetched).toBe(true);
+  });
+
+  it("falls through when candidates_json is corrupt", async () => {
+    const db = makeDb();
+    await primeCache(db);
+    db.prepare(
+      `UPDATE source_cache SET candidates_json = ? WHERE source_id = ?`,
+    ).run("not-json", "impact");
+
+    let called = 0;
+    const { fetcher } = fetcherFromFixture(loadFixture("impact-offers-ok.json"));
+    const wrappedFetcher: ImpactFetcher = async (url, init) => {
+      called += 1;
+      return fetcher(url, init);
+    };
+    const adapter = createImpactAdapter({
+      config: enabledConfig(),
+      fetcher: wrappedFetcher,
+      db,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "shop.example" });
+    expect(called).toBe(1);
+    expect(result.cacheHit).toBe(false);
+    expect(result.ok).toBe(true);
+  });
+
+  it("falls through when cached candidates fail revalidation", async () => {
+    const db = makeDb();
+    await primeCache(db);
+    const tampered = JSON.stringify([
+      { domain: "not a domain", code: "BAD", sourceId: "impact", discoveredAt: "x" },
+    ]);
+    db.prepare(
+      `UPDATE source_cache SET candidates_json = ? WHERE source_id = ?`,
+    ).run(tampered, "impact");
+
+    let called = 0;
+    const { fetcher } = fetcherFromFixture(loadFixture("impact-offers-ok.json"));
+    const wrappedFetcher: ImpactFetcher = async (url, init) => {
+      called += 1;
+      return fetcher(url, init);
+    };
+    const adapter = createImpactAdapter({
+      config: enabledConfig(),
+      fetcher: wrappedFetcher,
+      db,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "shop.example" });
+    expect(called).toBe(1);
+    expect(result.cacheHit).toBe(false);
+  });
+
+  it("rejects cached rows whose sourceId does not match", async () => {
+    const db = makeDb();
+    await primeCache(db);
+    const tampered = JSON.stringify([
+      { domain: "shop.example", code: "X", sourceId: "seed", discoveredAt: FIXED_NOW_ISO },
+    ]);
+    db.prepare(
+      `UPDATE source_cache SET candidates_json = ? WHERE source_id = ?`,
+    ).run(tampered, "impact");
+
+    let called = 0;
+    const { fetcher } = fetcherFromFixture(loadFixture("impact-offers-ok.json"));
+    const wrappedFetcher: ImpactFetcher = async (url, init) => {
+      called += 1;
+      return fetcher(url, init);
+    };
+    const adapter = createImpactAdapter({
+      config: enabledConfig(),
+      fetcher: wrappedFetcher,
+      db,
+      clock: fixedClock(),
+    });
+    await adapter.fetchAndParse({ domain: "shop.example" });
+    expect(called).toBe(1);
+  });
+
+  it("cache hit is scoped to (sourceId, domain) — different domain misses", async () => {
+    const db = makeDb();
+    await primeCache(db); // primes merchant:shop.example
+
+    let called = 0;
+    const { fetcher } = fetcherFromFixture(loadFixture("impact-offers-ok.json"));
+    const wrappedFetcher: ImpactFetcher = async (url, init) => {
+      called += 1;
+      return fetcher(url, init);
+    };
+    const adapter = createImpactAdapter({
+      config: enabledConfig(),
+      fetcher: wrappedFetcher,
+      db,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "other.example" });
+    expect(called).toBe(1);
+    expect(result.cacheHit).toBe(false);
+  });
+
+  it("disabled provider does not read cache or call fetcher", async () => {
+    const db = makeDb();
+    await primeCache(db);
+    let called = 0;
+    const fetcher: ImpactFetcher = async () => {
+      called += 1;
+      return { status: 200, body: "{}" };
+    };
+    const adapter = createImpactAdapter({
+      config: {
+        enabled: false,
+        reason: "flag_off",
+      } as unknown as ImpactProviderConfig,
+      fetcher,
+      db,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "shop.example" });
+    expect(called).toBe(0);
+    expect(result.cacheHit).toBe(false);
+    expect(result.errorCode).toBe("disabled");
+    const fetchHitCount = (
+      db
+        .prepare("SELECT COUNT(*) AS n FROM source_fetch_log WHERE outcome = ?")
+        .get("cache_hit") as { n: number }
+    ).n;
+    expect(fetchHitCount).toBe(0);
+  });
+
+  it("missing API key does not read cache or call fetcher", async () => {
+    const db = makeDb();
+    await primeCache(db);
+    let called = 0;
+    const fetcher: ImpactFetcher = async () => {
+      called += 1;
+      return { status: 200, body: "{}" };
+    };
+    const adapter = createImpactAdapter({
+      config: enabledConfig({ apiKey: "" }),
+      fetcher,
+      db,
+      clock: fixedClock(),
+    });
+    const result = await adapter.fetchAndParse({ domain: "shop.example" });
+    expect(called).toBe(0);
+    expect(result.errorCode).toBe("missing_api_key");
+    expect(result.cacheHit).toBe(false);
+    const fetchHitCount = (
+      db
+        .prepare("SELECT COUNT(*) AS n FROM source_fetch_log WHERE outcome = ?")
+        .get("cache_hit") as { n: number }
+    ).n;
+    expect(fetchHitCount).toBe(0);
+  });
+
+  it("cache hit never writes coupon_codes or coupon_code_sources", async () => {
+    const db = makeDb();
+    await primeCache(db);
+    const fetcher: ImpactFetcher = async () => {
+      throw new Error("should not be called");
+    };
+    const adapter = createImpactAdapter({
+      config: enabledConfig(),
+      fetcher,
+      db,
+      clock: fixedClock(),
+    });
+    await adapter.fetchAndParse({ domain: "shop.example" });
+    const codeCount = (
+      db.prepare("SELECT COUNT(*) AS n FROM coupon_codes").get() as { n: number }
+    ).n;
+    const provCount = (
+      db.prepare("SELECT COUNT(*) AS n FROM coupon_code_sources").get() as {
+        n: number;
+      }
+    ).n;
+    expect(codeCount).toBe(0);
+    expect(provCount).toBe(0);
+  });
+});

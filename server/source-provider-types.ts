@@ -31,6 +31,27 @@ import type {
   ImpactAdapterResult,
 } from "./source-provider-impact";
 
+// Unified provider adapter error-code union (v0.47.0). Extracted from the
+// pre-v0.47 Awin union (the strict superset of both adapters' codes) so the
+// shared pipeline and both thin adapters speak one vocabulary. `cache_fresh`
+// / `rate_limited` / `unknown_source` are forward-compat members the pipeline
+// does not emit at runtime today; folding them in is a type-only widening
+// with zero behavior change. `source-refresh.ts` keeps importing
+// `AwinAdapterErrorCode` (now an alias of this) so its `SAFE_REASONS` set is
+// unchanged.
+export type ProviderAdapterErrorCode =
+  | "disabled"
+  | "missing_api_key"
+  | "rate_limited"
+  | "cache_fresh"
+  | "unknown_source"
+  | "http_4xx"
+  | "http_5xx"
+  | "fetch_error"
+  | "timeout"
+  | "parse_error"
+  | "empty_response";
+
 export interface ProviderFetcherResponse {
   status: number;
   body: string;
