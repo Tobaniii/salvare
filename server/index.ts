@@ -41,6 +41,7 @@ import {
   handleAdminSourceProvidersRoute,
   type ProviderListSource,
 } from "./admin-source-providers-routes";
+import { handleAdminImportHistoryRoute } from "./admin-import-history-routes";
 import type { ProviderStatusFn } from "./db-source-status";
 import { getSourceAwareCandidateOrder } from "./db-candidate-order";
 import {
@@ -288,6 +289,13 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
     if (handleAdminSourceSummaryRoute(ctx)) return;
     if (handleAdminSourceStatusRoute(ctx, providerStatus)) return;
     if (handleAdminSourceProvidersRoute(ctx, providerListSource)) return;
+    if (
+      handleAdminImportHistoryRoute(
+        ctx,
+        (id) => registry.get(id) !== null,
+      )
+    )
+      return;
 
     sendJson(res, 404, { error: "not found" });
   }

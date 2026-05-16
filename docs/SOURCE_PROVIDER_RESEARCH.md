@@ -1,5 +1,39 @@
 # Salvare Source Provider Research — v0.31.0
 
+> **v0.46.0 status (2026-05-16):** **Generic provider import history /
+> audit trail.** New append-only `import_history` table
+> (`EXPECTED_SCHEMA_VERSION 4 → 5`; `CREATE TABLE IF NOT EXISTS` on next
+> boot, no migration array, starts empty, `db:bootstrap` never writes it)
+> records one redacted row per **real** import attempt — i.e. one that
+> passed auth **and** registry provider resolution. Redacted by
+> construction: columns are `provider_id` (always the registry-resolved
+> `descriptor.providerId`, never the client/path segment), nullable
+> `source_id` (`REFERENCES coupon_sources(id) ON DELETE RESTRICT`; NULL
+> for resolved-but-failed attempts where the adapter has not registered
+> the parent row), `domain`, `attempted_at`, `outcome`
+> (`ok`/`empty`/`error`), counter set, `error_code` (allowlisted short
+> token — the identical classifier the response builder emits, never a
+> raw exception string), `duration_ms`. No body/header/credential/token/
+> URL/free-text columns exist. Writer `recordProviderImportAttempt`
+> ([`server/db-source-import.ts`](../server/db-source-import.ts)) mirrors
+> `recordSourceFetchAttempt` validation/allowlisting; called exactly once
+> per post-resolution branch (closure-throw, adapter-not-ok, success).
+> **Resolver-denied / unknown-provider / not_user_exposed /
+> capability_unsupported / invalid-body / unauthorized → zero rows**
+> (denials are not real attempts; impact stays hidden). Existing import
+> response bodies are byte-identical to v0.45. `db-verify` adds the
+> table, both indexes, and a NULL-aware orphan check. Read-only
+> `GET /admin/import-history`
+> ([`server/admin-import-history-routes.ts`](../server/admin-import-history-routes.ts))
+> — protected, no mutation verb, allowlisted projection, `attempted_at
+> DESC` capped 500 + `truncated`, optional registry-validated `provider`
+> + ISO `from`/`to` filters (unknown/invalid fail closed). Minimal
+> read-only admin UI section. **Still out of scope:** retention /
+> pruning / export of history, history mutation / delete endpoint, any
+> import-behavior or response-shape change, scraping / new providers,
+> impact user exposure, extension / `/coupons` / export-import JSON /
+> ranking / further-schema changes.
+>
 > **v0.45.0 status (2026-05-16):** **Generic provider preview/import
 > routing.** The Awin-pinned preview/import routes are replaced by
 > parameterised `POST /admin/source-preview/:providerId` and

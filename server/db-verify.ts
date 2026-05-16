@@ -33,6 +33,7 @@ const REQUIRED_TABLES = [
   "coupon_code_sources",
   "source_cache",
   "source_fetch_log",
+  "import_history",
   "schema_meta",
 ] as const;
 
@@ -44,6 +45,8 @@ const REQUIRED_INDEXES = [
   "idx_source_cache_expires_at",
   "idx_source_fetch_log_source_attempt",
   "idx_source_fetch_log_source_key_attempt",
+  "idx_import_history_provider_attempt",
+  "idx_import_history_source",
 ] as const;
 
 function listTables(db: Db): Set<string> {
@@ -189,6 +192,24 @@ export function verifyDatabase(db: Db): VerifyResult {
   checks.push({
     name: "source_fetch_log_source_orphans",
     ok: sourceFetchLogOrphans === 0,
+  });
+
+  // import_history.source_id is intentionally nullable (resolved-but-failed
+  // attempts log provider_id only). A NULL source_id is allowed and skipped;
+  // a NON-NULL source_id with no matching coupon_sources row is an orphan
+  // and must fail this check.
+  const importHistoryOrphans =
+    tables.has("import_history") && tables.has("coupon_sources")
+      ? countOrCatch(
+          db,
+          `SELECT COUNT(*) AS c FROM import_history ih
+             LEFT JOIN coupon_sources src ON src.id = ih.source_id
+             WHERE ih.source_id IS NOT NULL AND src.id IS NULL`,
+        )
+      : null;
+  checks.push({
+    name: "import_history_source_orphans",
+    ok: importHistoryOrphans === 0,
   });
 
   if (tables.has("coupon_results")) {

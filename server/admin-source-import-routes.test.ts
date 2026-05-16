@@ -690,3 +690,173 @@ describe("POST /admin/source-import/:providerId — generic routing (v0.45.0)", 
     expect(raw).not.toContain("aw!n");
   });
 });
+
+describe("POST /admin/source-import — import_history audit (v0.46.0)", () => {
+  function historyRows(db: Db): Array<{
+    provider_id: string;
+    source_id: string | null;
+    domain: string;
+    outcome: string;
+    error_code: string | null;
+    codes_imported: number;
+    duration_ms: number | null;
+  }> {
+    return db
+      .prepare(
+        `SELECT provider_id, source_id, domain, outcome, error_code,
+                codes_imported, duration_ms
+           FROM import_history ORDER BY id ASC`,
+      )
+      .all() as Array<{
+      provider_id: string;
+      source_id: string | null;
+      domain: string;
+      outcome: string;
+      error_code: string | null;
+      codes_imported: number;
+      duration_ms: number | null;
+    }>;
+  }
+
+  it("a successful import writes exactly ONE row with resolved provider_id/source_id/counts/duration", async () => {
+    const db = openDatabase(":memory:");
+    upsertCouponCodes(db, "shop.example", ["EXISTING1"]);
+    const preview = buildFromAdapter(
+      db,
+      enabledConfig(),
+      fixtureFetcher(loadFixture("awin-offers-ok.json")),
+    );
+    const h = await startHarness(preview, null, db);
+    try {
+      const res = await fetch(`${h.baseUrl}/admin/source-import/awin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: "shop.example", confirm: "IMPORT" }),
+      });
+      expect(res.status).toBe(200);
+      const rows = historyRows(db);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].provider_id).toBe("awin");
+      expect(rows[0].source_id).toBe("awin");
+      expect(rows[0].domain).toBe("shop.example");
+      expect(rows[0].outcome).toBe("ok");
+      expect(rows[0].error_code).toBeNull();
+      expect(rows[0].codes_imported).toBeGreaterThan(0);
+      expect(rows[0].duration_ms).toBeGreaterThanOrEqual(0);
+    } finally {
+      await stopHarness(h);
+    }
+  });
+
+  it("a disabled-adapter import writes ONE error row with classified error_code and NULL source_id", async () => {
+    const stub: AwinPreviewFn = async () => ({
+      ok: false,
+      providerId: "awin",
+      sourceId: "awin",
+      outcome: "error",
+      errorCode: "disabled",
+      candidates: [],
+      errors: [],
+      fetched: false,
+      cacheHit: false,
+      durationMs: 0,
+    });
+    const h = await startHarness(stub, null);
+    try {
+      await fetch(`${h.baseUrl}/admin/source-import/awin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: "shop.example", confirm: "IMPORT" }),
+      });
+      const rows = historyRows(h.db);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].provider_id).toBe("awin");
+      expect(rows[0].source_id).toBeNull();
+      expect(rows[0].outcome).toBe("error");
+      expect(rows[0].error_code).toBe("disabled");
+    } finally {
+      await stopHarness(h);
+    }
+  });
+
+  it("a closure-throw import writes ONE error row with error_code 'fetch_error' and provider_id 'awin'", async () => {
+    const stub: AwinPreviewFn = async () => {
+      throw new Error("boom: secret detail that must never persist");
+    };
+    const h = await startHarness(stub, null);
+    try {
+      await fetch(`${h.baseUrl}/admin/source-import/awin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: "shop.example", confirm: "IMPORT" }),
+      });
+      const rows = historyRows(h.db);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].provider_id).toBe("awin");
+      expect(rows[0].source_id).toBeNull();
+      expect(rows[0].outcome).toBe("error");
+      expect(rows[0].error_code).toBe("fetch_error");
+      // The raw exception text never reaches the table.
+      const raw = JSON.stringify(rows[0]);
+      expect(raw).not.toContain("boom");
+      expect(raw).not.toContain("secret detail");
+    } finally {
+      await stopHarness(h);
+    }
+  });
+
+  it("a resolver-denied import (impact / bogus / illegal) writes ZERO rows", async () => {
+    const stub: AwinPreviewFn = async () => ({
+      ok: true,
+      providerId: "awin",
+      sourceId: "awin",
+      outcome: "ok",
+      candidates: [],
+      errors: [],
+      fetched: true,
+      cacheHit: false,
+      durationMs: 1,
+    });
+    const h = await startHarness(stub, null);
+    try {
+      for (const seg of ["impact", "bogus", "aw!n"]) {
+        await fetch(`${h.baseUrl}/admin/source-import/${seg}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            domain: "shop.example",
+            confirm: "IMPORT",
+          }),
+        });
+      }
+      expect(historyRows(h.db)).toHaveLength(0);
+    } finally {
+      await stopHarness(h);
+    }
+  });
+
+  it("an invalid-body request (no confirm) writes ZERO rows", async () => {
+    const stub: AwinPreviewFn = async () => ({
+      ok: true,
+      providerId: "awin",
+      sourceId: "awin",
+      outcome: "ok",
+      candidates: [],
+      errors: [],
+      fetched: true,
+      cacheHit: false,
+      durationMs: 1,
+    });
+    const h = await startHarness(stub, null);
+    try {
+      await fetch(`${h.baseUrl}/admin/source-import/awin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: "shop.example" }),
+      });
+      expect(historyRows(h.db)).toHaveLength(0);
+    } finally {
+      await stopHarness(h);
+    }
+  });
+});
