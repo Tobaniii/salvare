@@ -121,6 +121,66 @@ describe("renderResultStatus", () => {
   });
 });
 
+describe("renderResultStatus — v0.50.0 provenance + freshness (append-only)", () => {
+  const base = { bestCode: "SAVE10", totalCents: 9000, savingsCents: 1000 };
+
+  it("appends Source + Confidence + freshness AFTER the legacy lines", () => {
+    const out = renderResultStatus({
+      ...base,
+      codesTested: 3,
+      provenance: {
+        sourceType: "seed",
+        confidence: 100,
+        discoveredAt: "2026-05-14T11:30:00.000Z",
+      },
+    });
+    // Legacy contract still holds, anchored, unchanged.
+    expect(out).toMatch(/^Best code: SAVE10\n/);
+    expect(out).toMatch(
+      /Best code: \S+\nFinal total: \$\d+\.\d{2}\nYou saved: \$\d+\.\d{2}/,
+    );
+    const lines = out.split("\n");
+    expect(lines.slice(0, 4)).toEqual([
+      "Best code: SAVE10",
+      "Final total: $90.00",
+      "You saved: $10.00",
+      "Codes tested: 3",
+    ]);
+    expect(out).toContain("Source: seed");
+    expect(out).toContain("Confidence: 100%");
+    expect(out).toContain("Code found: 2026-05-14T11:30:00.000Z");
+  });
+
+  it("renders NO freshness line when the winner has no discoveredAt", () => {
+    const out = renderResultStatus({
+      ...base,
+      provenance: { sourceType: "manual" },
+    });
+    expect(out).toContain("Source: manual");
+    expect(out).not.toContain("Code found:");
+    // Never invents/falls back to a response-level timestamp.
+    expect(out).not.toMatch(/updated/i);
+    expect(out).not.toContain("Confidence:");
+  });
+
+  it("degrades silently when provenance is absent (legacy output)", () => {
+    const out = renderResultStatus({ ...base, codesTested: 2 });
+    expect(out).toBe(
+      "Best code: SAVE10\nFinal total: $90.00\nYou saved: $10.00\nCodes tested: 2",
+    );
+    expect(out).not.toContain("Source:");
+  });
+
+  it("appends the result-not-saved note when reportWarning is set", () => {
+    const out = renderResultStatus({ ...base, reportWarning: true });
+    expect(out).toContain("Note: result not saved");
+    const lines = out.split("\n");
+    expect(lines[lines.length - 1]).toBe(
+      "Note: result not saved (backend offline?).",
+    );
+  });
+});
+
 describe("renderProgressStatus", () => {
   it("renders current of total without code when code is missing", () => {
     expect(renderProgressStatus({ current: 1, total: 3 })).toBe(

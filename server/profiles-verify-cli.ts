@@ -25,6 +25,7 @@ import {
   getStoreProfileForDomain,
   type StoreProfile,
 } from "../extension/storeProfiles";
+import { normalizeLookupDomain } from "./domain-normalize";
 
 const KNOWN_DOMAINS = [
   "localhost",
@@ -71,10 +72,21 @@ function main(): void {
   const fixtures = verifyFixtureCompatibility(buildFixtureSources());
   const combined = combineResults(structural, fixtures);
 
+  // Canonical-data guard (v0.50.0): every profile's stored domain must
+  // already equal its normalized form, so the symmetric lookup-key
+  // normalization can never silently change which profile a host resolves
+  // to. Only profile ids are printed (no domains/selectors/codes).
+  const nonCanonical = profiles.filter(
+    (p) => p.domain !== normalizeLookupDomain(p.domain),
+  );
+
   console.log("Salvare profiles:verify");
   console.log(formatVerifyReport(combined));
+  for (const p of nonCanonical) {
+    console.log(`profile domain not canonical: ${p.id}`);
+  }
 
-  if (!combined.ok) {
+  if (!combined.ok || nonCanonical.length > 0) {
     process.exit(1);
   }
 }

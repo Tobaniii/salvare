@@ -52,6 +52,14 @@ test.describe("Salvare extension on the local React checkout", () => {
     const [, bestCode, finalTotalStr] = match!;
     expect(["SAVE10", "TAKE15", "FREESHIP"]).toContain(bestCode);
 
+    // v0.50.0: winner provenance indicator is rendered (append-only, after
+    // the legacy three lines). The harness seeds localhost via the admin
+    // upsert path, so the winning code carries a "manual" source claim.
+    expect(
+      statusText,
+      `popup status missing provenance line: ${statusText}`,
+    ).toContain("Source: ");
+
     // Cross-check the React app's grand-total locator.
     const grandTotal = checkout.locator(".totals .grand span").last();
     await expect(grandTotal).toHaveText(`$${finalTotalStr}`, {

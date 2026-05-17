@@ -64,6 +64,19 @@
     if (typeof response.codesTested === "number" && response.codesTested > 0) {
       lines.push(`Codes tested: ${response.codesTested}`);
     }
+    const prov = response.provenance;
+    if (prov && typeof prov.sourceType === "string" && prov.sourceType.length > 0) {
+      lines.push(`Source: ${prov.sourceType}`);
+      if (typeof prov.confidence === "number" && Number.isFinite(prov.confidence)) {
+        lines.push(`Confidence: ${prov.confidence}%`);
+      }
+      if (typeof prov.discoveredAt === "string" && prov.discoveredAt.length > 0) {
+        lines.push(`Code found: ${prov.discoveredAt}`);
+      }
+    }
+    if (response.reportWarning === true) {
+      lines.push("Note: result not saved (backend offline?).");
+    }
     return lines.join("\n");
   }
 

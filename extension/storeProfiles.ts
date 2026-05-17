@@ -1,3 +1,5 @@
+import { normalizeLookupDomain } from "./domainNormalize";
+
 export interface StoreSelectors {
   couponInput?: string;
   applyButton?: string;
@@ -20,7 +22,9 @@ const STORE_PROFILES: StoreProfile[] = [
   },
   {
     id: "wonderbly-com",
-    domain: "www.wonderbly.com",
+    // Canonical form (v0.50.0): a real visit to www.wonderbly.com normalizes
+    // to this key, and the comparator below normalizes both sides.
+    domain: "wonderbly.com",
     candidateCodes: ["WELCOME10", "SAVE15", "FREESHIP"],
   },
   {
@@ -54,5 +58,10 @@ const STORE_PROFILES: StoreProfile[] = [
 export function getStoreProfileForDomain(
   domain: string,
 ): StoreProfile | null {
-  return STORE_PROFILES.find((profile) => profile.domain === domain) ?? null;
+  const key = normalizeLookupDomain(domain);
+  return (
+    STORE_PROFILES.find(
+      (profile) => normalizeLookupDomain(profile.domain) === key,
+    ) ?? null
+  );
 }

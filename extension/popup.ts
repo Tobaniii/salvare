@@ -6,6 +6,7 @@ import {
   renderProgressStatus,
   renderResultStatus,
   renderSupportStatus,
+  type PopupResultProvenance,
 } from "./popupRender";
 
 const button = document.getElementById("find-best") as HTMLButtonElement | null;
@@ -44,6 +45,8 @@ interface FindBestSuccessResponse {
   totalCents: number;
   savingsCents: number;
   codesTested?: number;
+  provenance?: PopupResultProvenance;
+  reportWarning?: boolean;
 }
 
 interface FindBestFailureResponse {

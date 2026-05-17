@@ -206,6 +206,41 @@ curl -X POST http://localhost:4123/admin/coupons \
 
 The admin shell shows a small **Backend status** panel at the top of the page. It calls the unprotected `GET /health` endpoint on load and renders the service name, version, and yes/no for: database schema initialized, coupon data present, result history present, and admin token configured. The panel never displays the token value, the DB path, coupon codes, or result records, and it loads in both no-token and token modes (no `Authorization` header is sent). If `/health` fails the panel shows "Backend status unavailable." without affecting the rest of the page.
 
+### Public coupon endpoint response (`GET /coupons`, additive in v0.50.0)
+
+`GET /coupons?domain=<host>` is unprotected and read-only. Base response shape (unchanged, backward-compatible):
+
+```json
+{
+  "domain": "example.com",
+  "candidateCodes": ["WELCOME10", "SAVE15"],
+  "source": "mock-backend",
+  "updatedAt": "2026-05-16T00:00:00.000Z"
+}
+```
+
+- `candidateCodes` is the **sole** ordered test queue and is byte-identical and in the same order as before v0.50.0. The server remains the only test-order authority (v0.38 source pre-rank → history-dominant `rankCandidateCodes`); winner selection still happens at checkout on the lowest verified `finalTotalCents` (SOURCE_POLICY §7).
+- `updatedAt` is a response-level timestamp preserved for backward compatibility. It is **not** the popup "freshness" source (see below).
+
+**Additive, optional, allowlist-only `candidateProvenance` (v0.50.0).** When at least one candidate code has a recorded source claim, the response carries one extra field:
+
+```json
+"candidateProvenance": [
+  { "code": "WELCOME10", "sourceType": "seed", "discoveredAt": "2026-05-14T11:30:00.000Z", "confidence": 100 },
+  { "code": "SAVE15", "sourceType": "manual" }
+]
+```
+
+- One entry per code, in `candidateProvenance` order matching `candidateCodes`. Multi-source codes are collapsed deterministically (highest `confidence` → most recent `discoveredAt` → source-type priority).
+- **Strict allowlist — exactly four keys:** `code`, `sourceType`, `discoveredAt` (optional), `confidence` (optional). The field is built with a hard-coded `buildSafeProvenance` projection (no object spread), the same discipline as the admin `buildSafe*` routes.
+- **Never** included, even if smuggled into a source row: `sourceId`, `sourceName`, `sourceUrl`, `label`, `expiresAt`, any affiliate/tracking/payout field, raw payloads, API keys, env vars, DB paths.
+- The whole field is **omitted entirely** when no code has any claim, so an unmodified/older extension keeps its 4-key shape and does not crash. The extension also re-sanitizes the field defensively on receipt and tolerates its absence or a malformed shape (codes still flow; provenance is dropped).
+- This response-shape extension is additive and explicitly authorized by the v0.50.0 milestone.
+
+**Popup freshness is the winning code's own discovery time.** The extension popup's "Code found:" line is derived **only** from the winning code's `candidateProvenance.discoveredAt`. If the winner has no `discoveredAt`, the popup renders **no** freshness line — it never falls back to the response-level `updatedAt`.
+
+**Inbound domain normalization (v0.50.0).** `GET /coupons` and `GET`/`POST`/`DELETE /results` normalize the inbound `domain` (trim, lowercase, strip a single leading `www.`) before lookup. Stored seed/store/profile rows are already canonical, so existing data resolves identically; `www.`, mixed-case, and whitespace variants now resolve to the same canonical store. No DB schema or write-path change.
+
 ### Admin export endpoints
 
 Two read-only export endpoints expose the current SQLite contents in the same JSON shapes used by the bootstrap files and the `db:export` CLI:
