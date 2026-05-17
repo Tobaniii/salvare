@@ -14,7 +14,13 @@
 // raw provider payloads, and stack traces are **not** read by this module
 // and cannot influence ordering even if smuggled into the input — only
 // the explicit allowlist (`sourceId`, `sourceType`, `confidence`,
-// `discoveredAt`) is considered.
+// `discoveredAt`, `expiresAt`) is considered.
+//
+// `expiresAt` (v0.51.0) is DEPRIORITIZE-ONLY: a code whose every dated claim
+// is in the past sorts to the END of the pre-test queue but stays in the set
+// and is still tested — never dropped or filtered (§9). A null/absent/empty
+// `expiresAt` is NOT expiry and carries no penalty. `expiresAt` is used only
+// for this internal test-order tier; it never reaches any response.
 
 import type { CouponSourceType } from "./db";
 
@@ -23,6 +29,8 @@ export interface CandidateSourceClaim {
   sourceType: CouponSourceType;
   confidence?: number;
   discoveredAt?: string;
+  /** Deprioritize-only (v0.51.0). Pre-order test-queue tier; never surfaced. */
+  expiresAt?: string;
 }
 
 export interface CandidateOrderOptions {
@@ -40,6 +48,8 @@ export interface CandidateExplanation {
   multiSourceBonus: number;
   freshnessScore: number;
   distinctSources: number;
+  /** v0.51.0 deprioritize tier. Debug/test only (`withExplanations`). */
+  expired: boolean;
 }
 
 export interface CandidateOrderResult {
@@ -85,10 +95,36 @@ function freshnessFromDate(
   return FRESHNESS_MAX - days;
 }
 
+// Deprioritize-only expiry tier (v0.51.0). A code is expired ONLY when every
+// claim carries a parseable PAST `expiresAt`. null/absent/empty/garbage values
+// are treated as never-expires (+Infinity) so a mixed null+past code stays
+// non-expired ("absence is not expiry; no penalty"). `Math.max` over claim
+// expiry — not `Math.min` — so we deprioritize only when even the latest-
+// claiming source is past (a `min` would over-deprioritize a code a
+// trustworthy source still vouches for). Strict `<`: `expiresAt === now` is
+// NOT expired. Never drops a code — only feeds the pre-order sort tier.
+function isCodeExpired(
+  claims: readonly CandidateSourceClaim[],
+  now: Date,
+): boolean {
+  if (claims.length === 0) return false;
+  let maxExpiry = Number.NEGATIVE_INFINITY;
+  for (const claim of claims) {
+    let value = Number.POSITIVE_INFINITY;
+    const iso = claim.expiresAt;
+    if (typeof iso === "string" && iso.length > 0) {
+      const t = Date.parse(iso);
+      if (Number.isFinite(t)) value = t;
+    }
+    if (value > maxExpiry) maxExpiry = value;
+  }
+  return Number.isFinite(maxExpiry) && maxExpiry < now.getTime();
+}
+
 function scoreCodeClaims(
   claims: readonly CandidateSourceClaim[],
   now: Date,
-): Omit<CandidateExplanation, "code"> {
+): Omit<CandidateExplanation, "code" | "expired"> {
   if (claims.length === 0) {
     return {
       score: 0,
@@ -145,12 +181,21 @@ export function orderCandidatesBySource(
   const now = (options.now ?? (() => new Date()))();
   const explanations: CandidateExplanation[] = codes.map((code) => {
     const claims = claimsByCode.get(code) ?? [];
-    return { code, ...scoreCodeClaims(claims, now) };
+    return {
+      code,
+      expired: isCodeExpired(claims, now),
+      ...scoreCodeClaims(claims, now),
+    };
   });
 
-  // Stable sort by score descending; ties keep input order via index.
+  // Two-tier stable sort: non-expired group first, then expired group; within
+  // each, score descending with input order as the stable tiebreak. When no
+  // claim carries `expiresAt`, every `expired` is false, the first clause is
+  // always 0, and this reduces to the exact v0.38 two-clause comparator —
+  // byte-identical output. A sort never drops a code (§9 set equality).
   const indexed = explanations.map((e, i) => ({ e, i }));
   indexed.sort((a, b) => {
+    if (a.e.expired !== b.e.expired) return a.e.expired ? 1 : -1;
     if (a.e.score !== b.e.score) return b.e.score - a.e.score;
     return a.i - b.i;
   });

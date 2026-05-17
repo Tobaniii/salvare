@@ -283,3 +283,92 @@ describe("GET /coupons — inbound domain normalization (v0.50.0)", () => {
     }
   });
 });
+
+describe("GET /coupons — expiry deprioritize tier (v0.51.0)", () => {
+  let h: Harness;
+  let dbRef!: Db;
+  const PAST_ISO = "2020-01-01T00:00:00.000Z"; // unambiguously < wall clock
+  beforeAll(async () => {
+    const db = openDatabase(":memory:");
+    // F, G: admin-only (manual, null expiry) → NOT expired. upsert is a
+    // destructive per-store replace, so it must run FIRST.
+    upsertCouponCodes(db, "expiry.example", ["F", "G"]);
+    // E: additive provider import with a PAST expiry (no admin null-claim
+    // to rescue it under Math.max) → genuinely expired.
+    importProviderCandidates(db, {
+      sourceId: "awin",
+      sourceName: "Awin",
+      sourceType: "api",
+      domain: "expiry.example",
+      candidates: [
+        { domain: "expiry.example", code: "E", expiresAt: PAST_ISO },
+      ],
+    });
+    // Give E the strongest non-expiry signal but a PAST expiry on every
+    // claim — absent the tier E sorts first; the tier must force it last.
+    const storeId = (
+      db
+        .prepare(`SELECT id FROM stores WHERE domain = ?`)
+        .get("expiry.example") as { id: number }
+    ).id;
+    recordCouponCodeSource(db, {
+      storeId,
+      code: "E",
+      sourceId: BUILTIN_SOURCE_IDS.seed,
+      discoveredAt: "2026-05-14T11:30:00.000Z",
+      confidence: 100,
+      expiresAt: PAST_ISO,
+    });
+    h = await startHarness(db);
+    dbRef = db;
+  });
+  afterAll(async () => stopHarness(h));
+
+  it("keeps the expired code in the set (never dropped) and 5-key v0.50 shape", async () => {
+    const res = await fetch(`${h.baseUrl}/coupons?domain=expiry.example`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(Object.keys(body).sort()).toEqual(
+      ["candidateCodes", "candidateProvenance", "domain", "source", "updatedAt"].sort(),
+    );
+    expect(new Set(body.candidateCodes)).toEqual(new Set(["E", "F", "G"]));
+    expect(body.candidateCodes).toHaveLength(3);
+    // Expired E deprioritized to the end; still present (§9 never dropped).
+    expect(body.candidateCodes[body.candidateCodes.length - 1]).toBe("E");
+  });
+
+  it("never leaks expires_at / expiresAt / the expiry value into the response", async () => {
+    const raw = await (
+      await fetch(`${h.baseUrl}/coupons?domain=expiry.example`)
+    ).text();
+    expect(raw).not.toContain("expires_at");
+    expect(raw).not.toContain("expiresAt");
+    expect(raw).not.toContain(PAST_ISO);
+    expect(raw).not.toContain("2020-01-01");
+  });
+
+  it("/coupons stays read-only with expiry data present (zero writes)", async () => {
+    const snapshot = () => ({
+      coupons: (
+        dbRef.prepare("SELECT COUNT(*) AS n FROM coupon_codes").get() as {
+          n: number;
+        }
+      ).n,
+      results: (
+        dbRef.prepare("SELECT COUNT(*) AS n FROM coupon_results").get() as {
+          n: number;
+        }
+      ).n,
+      codeSources: (
+        dbRef
+          .prepare("SELECT COUNT(*) AS n FROM coupon_code_sources")
+          .get() as { n: number }
+      ).n,
+    });
+    const before = snapshot();
+    await fetch(`${h.baseUrl}/coupons?domain=expiry.example`);
+    await fetch(`${h.baseUrl}/coupons?domain=expiry.example`);
+    await fetch(`${h.baseUrl}/coupons?domain=expiry.example`);
+    expect(snapshot()).toEqual(before);
+  });
+});
