@@ -98,3 +98,9 @@ describe("buildHealthFailureResponse", () => {
     });
   });
 });
+
+describe("SALVARE_VERSION", () => {
+  it("is pinned to the current milestone version", () => {
+    expect(SALVARE_VERSION).toBe("0.51.0");
+  });
+});

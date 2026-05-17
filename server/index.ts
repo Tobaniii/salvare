@@ -10,6 +10,7 @@ import {
   validateDomainParam,
 } from "./coupons";
 import { normalizeLookupDomain } from "./domain-normalize";
+import { resolveMerchantAlias } from "./merchant-alias";
 import { getCandidateProvenanceForDomain } from "./db-coupon-provenance";
 import { validateResultBody } from "./results";
 import { buildCorsHeaders } from "./cors";
@@ -210,7 +211,12 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
       // Conservative inbound-key normalization (v0.50.0). Stored rows are
       // canonical, so this is a no-op on existing data; it only makes
       // www/case/whitespace variants resolve to the same canonical key.
-      const domain = normalizeLookupDomain(rawDomain);
+      // Curated merchant-alias resolution (v0.51.0) runs immediately after,
+      // before the first DB read, so the SAME resolved key feeds candidate
+      // codes, source pre-order, history, and provenance — no split-brain.
+      // The alias map ships EMPTY, so this is the identity function and the
+      // entire /coupons behavior is byte-identical to v0.50.
+      const domain = resolveMerchantAlias(normalizeLookupDomain(rawDomain));
       const codes = getCandidateCodesForDomain(db, domain);
       // Source-aware pre-rank (v0.38.0): re-orders codes using only
       // allowlisted provenance fields. Internal-only reordering — the
