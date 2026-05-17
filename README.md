@@ -36,7 +36,8 @@ For a full local-first walkthrough — fresh setup, demo flow, admin/health/expo
 - Search-form guard so apply attempts cannot click site-search submit buttons or submit search forms.
 - Total detection with a blacklist filter so discount, savings, and subtotal rows are not mistaken for the order total.
 - Baseline comparison: a code is only counted as successful if it strictly lowers the original total. The popup reports the best code, the final total, and the savings.
-- Reports each tested coupon outcome to the local backend (best-effort, fire-and-forget).
+- Reports each tested coupon outcome to the local backend (best-effort, fire-and-forget) with one bounded retry and a "result not saved" indicator if the backend is offline.
+- Winner provenance and freshness: the popup shows the winning code's source type, optional confidence, and (when known) its own discovery time. Conservative `www.`/case/whitespace domain normalization is applied symmetrically to the lookup. Provenance is display-only — the lowest verified final total still decides the winner (SOURCE_POLICY §7).
 
 ## Supported and tested environments
 

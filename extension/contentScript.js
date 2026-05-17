@@ -1,4 +1,13 @@
 (() => {
+  // extension/domainNormalize.ts
+  function normalizeLookupDomain(raw) {
+    const lowered = raw.trim().toLowerCase();
+    if (lowered.startsWith("www.")) {
+      return lowered.slice(4);
+    }
+    return lowered;
+  }
+
   // extension/storeProfiles.ts
   var STORE_PROFILES = [
     {
@@ -8,7 +17,9 @@
     },
     {
       id: "wonderbly-com",
-      domain: "www.wonderbly.com",
+      // Canonical form (v0.50.0): a real visit to www.wonderbly.com normalizes
+      // to this key, and the comparator below normalizes both sides.
+      domain: "wonderbly.com",
       candidateCodes: ["WELCOME10", "SAVE15", "FREESHIP"]
     },
     {
@@ -35,7 +46,10 @@
     }
   ];
   function getStoreProfileForDomain(domain) {
-    return STORE_PROFILES.find((profile) => profile.domain === domain) ?? null;
+    const key = normalizeLookupDomain(domain);
+    return STORE_PROFILES.find(
+      (profile) => normalizeLookupDomain(profile.domain) === key
+    ) ?? null;
   }
 
   // extension/couponProvider.ts
@@ -56,6 +70,29 @@
     if (typeof candidate.updatedAt !== "string") return false;
     return true;
   }
+  function sanitizeProvenance(value) {
+    if (!Array.isArray(value)) return void 0;
+    const out = [];
+    for (const raw of value) {
+      if (!raw || typeof raw !== "object") continue;
+      const r = raw;
+      if (typeof r.code !== "string" || typeof r.sourceType !== "string") {
+        continue;
+      }
+      const entry = {
+        code: r.code,
+        sourceType: r.sourceType
+      };
+      if (typeof r.discoveredAt === "string" && r.discoveredAt.length > 0) {
+        entry.discoveredAt = r.discoveredAt;
+      }
+      if (typeof r.confidence === "number" && Number.isFinite(r.confidence) && r.confidence >= 0 && r.confidence <= 100) {
+        entry.confidence = r.confidence;
+      }
+      out.push(entry);
+    }
+    return out.length > 0 ? out : void 0;
+  }
   async function fetchFromBackend(domain) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), BACKEND_TIMEOUT_MS);
@@ -70,7 +107,10 @@
         return null;
       }
       if (!isValidBackendResponse(body)) return null;
-      return body.candidateCodes;
+      return {
+        candidateCodes: body.candidateCodes,
+        candidateProvenance: sanitizeProvenance(body.candidateProvenance)
+      };
     } catch {
       return null;
     } finally {
@@ -81,13 +121,20 @@
     const profile = getStoreProfileForDomain(domain);
     return profile?.candidateCodes ?? [];
   }
-  async function fetchCandidateCodesWithMode(domain, mode) {
+  async function fetchCandidateCodesWithProvenance(domain, mode = COUPON_PROVIDER_MODE) {
     if (mode === "mock") {
-      return getMockCandidateCodes(domain);
+      return { candidateCodes: getMockCandidateCodes(domain) };
     }
     const fromBackend = await fetchFromBackend(domain);
     if (fromBackend !== null) return fromBackend;
-    return getMockCandidateCodes(domain);
+    return { candidateCodes: getMockCandidateCodes(domain) };
+  }
+  async function fetchCandidateCodesWithMode(domain, mode) {
+    const { candidateCodes } = await fetchCandidateCodesWithProvenance(
+      domain,
+      mode
+    );
+    return candidateCodes;
   }
   async function fetchCandidateCodes(domain) {
     return fetchCandidateCodesWithMode(domain, COUPON_PROVIDER_MODE);
@@ -96,19 +143,34 @@
   // extension/resultReporter.ts
   var RESULTS_URL = "http://localhost:4123/results";
   var TIMEOUT_MS = 750;
-  async function reportCouponResult(result) {
+  var MAX_ATTEMPTS = 2;
+  async function attemptReport(result) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
     try {
-      await fetch(RESULTS_URL, {
+      const response = await fetch(RESULTS_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(result),
         signal: controller.signal
       });
+      return response.ok === true;
     } catch {
+      return false;
     } finally {
       clearTimeout(timeout);
+    }
+  }
+  async function reportCouponResult(result, onOutcome) {
+    let ok = false;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS && !ok; attempt++) {
+      ok = await attemptReport(result);
+    }
+    if (onOutcome) {
+      try {
+        onOutcome(ok);
+      } catch {
+      }
     }
   }
 
@@ -726,6 +788,8 @@
     }
     await expandCouponSection(profile);
     const results = [];
+    const reportPromises = [];
+    let reportFailed = false;
     for (let i = 0; i < codes.length; i++) {
       const code = codes[i];
       if (onProgress) {
@@ -769,24 +833,34 @@
       });
       const reportSavings = improved && totalCents !== null ? baselineTotalCents - totalCents : 0;
       const reportFinalTotal = improved && totalCents !== null ? totalCents : baselineTotalCents;
-      void reportCouponResult({
-        domain: window.location.hostname,
-        code,
-        success: improved,
-        savingsCents: reportSavings,
-        finalTotalCents: reportFinalTotal
-      });
+      reportPromises.push(
+        reportCouponResult(
+          {
+            domain: normalizeLookupDomain(window.location.hostname),
+            code,
+            success: improved,
+            savingsCents: reportSavings,
+            finalTotalCents: reportFinalTotal
+          },
+          (ok) => {
+            if (!ok) reportFailed = true;
+          }
+        )
+      );
       if (improved && totalCents !== null) {
-        results.push({ code, totalCents });
+        results.push({ code, totalCents, savingsCents: reportSavings });
       }
     }
     if (results.length === 0) {
       console.log("Salvare found no coupon that improved the total.");
       return null;
     }
-    const best = results.reduce(
-      (lowest, current) => current.totalCents < lowest.totalCents ? current : lowest
-    );
+    const best = results.reduce((lowest, current) => {
+      if (current.totalCents !== lowest.totalCents) {
+        return current.totalCents < lowest.totalCents ? current : lowest;
+      }
+      return current.savingsCents > lowest.savingsCents ? current : lowest;
+    });
     console.log("Salvare coupon test results:", results);
     console.log("Salvare best tested coupon:", best);
     await removeAppliedDiscounts(profile);
@@ -796,7 +870,8 @@
     applyCouponCode(best.code, profile);
     await waitForCheckoutIdle(profile, WAIT_MS);
     console.log(`Salvare re-applied best coupon: ${best.code}`);
-    return { ...best, baselineTotalCents };
+    await Promise.allSettled(reportPromises);
+    return { ...best, baselineTotalCents, reportFailed };
   }
   async function getCheckoutSupportStatus(domain) {
     const profile = getStoreProfileForDomain(domain);
@@ -888,11 +963,12 @@
   }
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === "SALVARE_FIND_BEST_COUPON") {
-      const hostname = window.location.hostname;
+      const hostname = normalizeLookupDomain(window.location.hostname);
       const profile = getStoreProfileForDomain(hostname);
       const runId = typeof message.runId === "string" ? message.runId : void 0;
       (async () => {
-        const codes = await fetchCandidateCodes(hostname);
+        const fetched = await fetchCandidateCodesWithProvenance(hostname);
+        const codes = fetched.candidateCodes;
         if (!profile || codes.length === 0) {
           sendResponse({
             success: false,
@@ -910,19 +986,29 @@
           });
           return;
         }
+        const winnerEntry = fetched.candidateProvenance?.find((p) => p.code === best.code);
+        const provenance = winnerEntry ? {
+          sourceType: winnerEntry.sourceType,
+          ...winnerEntry.discoveredAt ? { discoveredAt: winnerEntry.discoveredAt } : {},
+          ...typeof winnerEntry.confidence === "number" ? { confidence: winnerEntry.confidence } : {}
+        } : void 0;
         sendResponse({
           success: true,
           bestCode: best.code,
           totalCents: best.totalCents,
           savingsCents: best.baselineTotalCents - best.totalCents,
-          codesTested: codes.length
+          codesTested: codes.length,
+          ...provenance ? { provenance } : {},
+          ...best.reportFailed ? { reportWarning: true } : {}
         });
       })();
       return true;
     }
     if (message.type === "SALVARE_CHECK_SUPPORT") {
       (async () => {
-        const status = await getCheckoutSupportStatus(window.location.hostname);
+        const status = await getCheckoutSupportStatus(
+          normalizeLookupDomain(window.location.hostname)
+        );
         sendResponse(status);
       })();
       return true;

@@ -2,8 +2,13 @@ import {
   getStoreProfileForDomain,
   type StoreProfile,
 } from "./storeProfiles";
-import { fetchCandidateCodes } from "./couponProvider";
+import {
+  fetchCandidateCodes,
+  fetchCandidateCodesWithProvenance,
+  type CandidateProvenanceEntry,
+} from "./couponProvider";
 import { reportCouponResult } from "./resultReporter";
+import { normalizeLookupDomain } from "./domainNormalize";
 import { extractMoneyText, parseMoneyToCents } from "./moneyParsing";
 import {
   findApplyButtons as scanFindApplyButtons,
@@ -737,6 +742,7 @@ async function findBestWorkingCoupon(
   code: string;
   totalCents: number;
   baselineTotalCents: number;
+  reportFailed: boolean;
 } | null> {
   const WAIT_MS = 5000;
 
@@ -754,7 +760,13 @@ async function findBestWorkingCoupon(
 
   await expandCouponSection(profile);
 
-  const results: { code: string; totalCents: number }[] = [];
+  const results: {
+    code: string;
+    totalCents: number;
+    savingsCents: number;
+  }[] = [];
+  const reportPromises: Promise<void>[] = [];
+  let reportFailed = false;
 
   for (let i = 0; i < codes.length; i++) {
     const code = codes[i];
@@ -820,16 +832,23 @@ async function findBestWorkingCoupon(
       improved && totalCents !== null ? baselineTotalCents - totalCents : 0;
     const reportFinalTotal =
       improved && totalCents !== null ? totalCents : baselineTotalCents;
-    void reportCouponResult({
-      domain: window.location.hostname,
-      code,
-      success: improved,
-      savingsCents: reportSavings,
-      finalTotalCents: reportFinalTotal,
-    });
+    reportPromises.push(
+      reportCouponResult(
+        {
+          domain: normalizeLookupDomain(window.location.hostname),
+          code,
+          success: improved,
+          savingsCents: reportSavings,
+          finalTotalCents: reportFinalTotal,
+        },
+        (ok) => {
+          if (!ok) reportFailed = true;
+        },
+      ),
+    );
 
     if (improved && totalCents !== null) {
-      results.push({ code, totalCents });
+      results.push({ code, totalCents, savingsCents: reportSavings });
     }
   }
 
@@ -838,9 +857,18 @@ async function findBestWorkingCoupon(
     return null;
   }
 
-  const best = results.reduce((lowest, current) =>
-    current.totalCents < lowest.totalCents ? current : lowest,
-  );
+  // Winner = lowest VERIFIED finalTotalCents (SOURCE_POLICY §7). The server
+  // is the sole test-order authority; this only selects among observed
+  // checkout totals — no client re-ranking, no confidence/affiliate input.
+  // §7 tiebreak is highest savingsCents; with a single baseline per run an
+  // equal total implies equal savings, so the tiebreak never reorders and
+  // the earlier (server-order) code is kept on a true tie.
+  const best = results.reduce((lowest, current) => {
+    if (current.totalCents !== lowest.totalCents) {
+      return current.totalCents < lowest.totalCents ? current : lowest;
+    }
+    return current.savingsCents > lowest.savingsCents ? current : lowest;
+  });
 
   console.log("Salvare coupon test results:", results);
   console.log("Salvare best tested coupon:", best);
@@ -853,7 +881,11 @@ async function findBestWorkingCoupon(
   await waitForCheckoutIdle(profile, WAIT_MS);
   console.log(`Salvare re-applied best coupon: ${best.code}`);
 
-  return { ...best, baselineTotalCents };
+  // Reports were fired during the loop and ran concurrently; settle any
+  // still in flight so the popup can surface "result not saved" feedback.
+  await Promise.allSettled(reportPromises);
+
+  return { ...best, baselineTotalCents, reportFailed };
 }
 
 interface CheckoutSupportStatus {
@@ -979,13 +1011,14 @@ function emitCouponProgress(
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "SALVARE_FIND_BEST_COUPON") {
-    const hostname = window.location.hostname;
+    const hostname = normalizeLookupDomain(window.location.hostname);
     const profile = getStoreProfileForDomain(hostname);
     const runId: string | undefined =
       typeof message.runId === "string" ? message.runId : undefined;
 
     (async () => {
-      const codes = await fetchCandidateCodes(hostname);
+      const fetched = await fetchCandidateCodesWithProvenance(hostname);
+      const codes = fetched.candidateCodes;
 
       if (!profile || codes.length === 0) {
         sendResponse({
@@ -1007,12 +1040,31 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return;
       }
 
+      // Winner-only allowlisted provenance for display. Freshness shown in
+      // the popup comes from this entry's own discoveredAt — never a
+      // response-level timestamp.
+      const winnerEntry: CandidateProvenanceEntry | undefined =
+        fetched.candidateProvenance?.find((p) => p.code === best.code);
+      const provenance = winnerEntry
+        ? {
+            sourceType: winnerEntry.sourceType,
+            ...(winnerEntry.discoveredAt
+              ? { discoveredAt: winnerEntry.discoveredAt }
+              : {}),
+            ...(typeof winnerEntry.confidence === "number"
+              ? { confidence: winnerEntry.confidence }
+              : {}),
+          }
+        : undefined;
+
       sendResponse({
         success: true,
         bestCode: best.code,
         totalCents: best.totalCents,
         savingsCents: best.baselineTotalCents - best.totalCents,
         codesTested: codes.length,
+        ...(provenance ? { provenance } : {}),
+        ...(best.reportFailed ? { reportWarning: true } : {}),
       });
     })();
 
@@ -1021,7 +1073,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message.type === "SALVARE_CHECK_SUPPORT") {
     (async () => {
-      const status = await getCheckoutSupportStatus(window.location.hostname);
+      const status = await getCheckoutSupportStatus(
+        normalizeLookupDomain(window.location.hostname),
+      );
       sendResponse(status);
     })();
 

@@ -4,7 +4,13 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import { buildCouponResponse, validateDomainParam } from "./coupons";
+import {
+  buildCouponResponse,
+  buildSafeProvenance,
+  validateDomainParam,
+} from "./coupons";
+import { normalizeLookupDomain } from "./domain-normalize";
+import { getCandidateProvenanceForDomain } from "./db-coupon-provenance";
 import { validateResultBody } from "./results";
 import { buildCorsHeaders } from "./cors";
 import { rankCandidateCodes } from "./ranking";
@@ -196,11 +202,15 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
     }
 
     if (req.method === "GET" && url.pathname === "/coupons") {
-      const domain = url.searchParams.get("domain")?.trim();
-      if (!domain) {
+      const rawDomain = url.searchParams.get("domain")?.trim();
+      if (!rawDomain) {
         sendJson(res, 400, { error: "missing domain" });
         return;
       }
+      // Conservative inbound-key normalization (v0.50.0). Stored rows are
+      // canonical, so this is a no-op on existing data; it only makes
+      // www/case/whitespace variants resolve to the same canonical key.
+      const domain = normalizeLookupDomain(rawDomain);
       const codes = getCandidateCodesForDomain(db, domain);
       // Source-aware pre-rank (v0.38.0): re-orders codes using only
       // allowlisted provenance fields. Internal-only reordering — the
@@ -214,7 +224,18 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
         response.candidateCodes,
         getResultsForDomain(db, domain),
       );
-      sendJson(res, 200, { ...response, candidateCodes: ranked });
+      // Additive, optional, allowlist-only per-code provenance (v0.50.0).
+      // Built from the final ranked order; omitted entirely when no code
+      // has any source claim. Never carries sourceId/sourceUrl/affiliate.
+      const candidateProvenance = buildSafeProvenance(
+        ranked,
+        getCandidateProvenanceForDomain(db, domain),
+      );
+      sendJson(res, 200, {
+        ...response,
+        candidateCodes: ranked,
+        ...(candidateProvenance ? { candidateProvenance } : {}),
+      });
       return;
     }
 
@@ -234,7 +255,7 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
       }
 
       const stored = appendResultRecord(db, {
-        domain: validation.domain,
+        domain: normalizeLookupDomain(validation.domain),
         code: validation.code,
         success: validation.success,
         savingsCents: validation.savingsCents,
@@ -251,7 +272,10 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
         sendJson(res, 400, { error: validation.error });
         return;
       }
-      const result = deleteResultsForDomain(db, validation.domain);
+      const result = deleteResultsForDomain(
+        db,
+        normalizeLookupDomain(validation.domain),
+      );
       sendJson(res, 200, result);
       return;
     }
@@ -263,7 +287,8 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
         return;
       }
 
-      const records = getResultsForDomain(db, validation.domain).map((r) => ({
+      const resultsDomain = normalizeLookupDomain(validation.domain);
+      const records = getResultsForDomain(db, resultsDomain).map((r) => ({
         code: r.code,
         success: r.success,
         savingsCents: r.savingsCents,
@@ -272,7 +297,7 @@ export function createSalvareServer(options: SalvareServerOptions): Server {
       }));
 
       sendJson(res, 200, {
-        domain: validation.domain,
+        domain: resultsDomain,
         results: records,
       });
       return;
