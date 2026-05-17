@@ -95,9 +95,10 @@ export interface ProviderActivation {
    */
   readonly cacheSupported: boolean;
   /**
-   * Declared-only metadata for a future scheduler milestone (v0.52). NO
-   * consumer and NO enforcement in v0.48 — pure registry metadata. Both
-   * registered providers ship `false`.
+   * v0.52.0 consumer: the scheduled-refresh loop (`scheduled-refresh.ts`)
+   * selects providers where `enabled && schedulerSupported`. Awin ships
+   * `true`; impact.com is permanently `false` (no publisher account — never
+   * scheduled). Still a compile-time constant — no env/DB/runtime toggling.
    */
   readonly schedulerSupported: boolean;
 }
@@ -220,7 +221,9 @@ const AWIN_METADATA = {
     importEnabled: true,
     userExposed: true,
     cacheSupported: true,
-    schedulerSupported: false,
+    // v0.52.0 — first scheduler consumer: Awin is eligible for the opt-in
+    // background source-refresh loop.
+    schedulerSupported: true,
   },
 } as const satisfies ProviderDescriptorMetadata;
 
@@ -240,6 +243,8 @@ const IMPACT_METADATA = {
     importEnabled: false,
     userExposed: false,
     cacheSupported: true,
+    // v0.52.0 — impact.com has no publisher account; never scheduled
+    // (permanent false — see memory project_impact_blocked).
     schedulerSupported: false,
   },
 } as const satisfies ProviderDescriptorMetadata;

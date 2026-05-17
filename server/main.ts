@@ -16,6 +16,7 @@ import { bootstrapResultsIfEmpty } from "./db-results";
 import { parseServerConfig } from "./config";
 import { buildStartupDiagnostics, getDatabaseStatus } from "./diagnostics";
 import { SALVARE_VERSION } from "./health";
+import { startScheduledRefresh } from "./scheduled-refresh";
 
 const DEFAULT_PORT = 4123;
 
@@ -84,6 +85,26 @@ function main(): void {
     fail(`server error: ${err.message}`);
   });
   server.listen(config.port);
+
+  // v0.52.0 — opt-in, default-OFF background source-refresh loop. Non-blocking
+  // (registers a timer or returns a no-op handle when disabled); never awaited
+  // so boot is unaffected. This is also the first SIGINT/SIGTERM handler in
+  // the codebase: minimal, idempotent, strictly additive (there was no prior
+  // graceful shutdown to regress).
+  const scheduler = startScheduledRefresh({ db, env: process.env });
+
+  let shuttingDown = false;
+  const shutdown = (): void => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    scheduler.stop();
+    server.close(() => {
+      db.close();
+      process.exit(0);
+    });
+  };
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
 }
 
 main();

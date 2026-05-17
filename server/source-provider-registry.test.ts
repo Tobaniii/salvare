@@ -127,7 +127,7 @@ describe("createProviderRegistry — descriptors and listing", () => {
       importEnabled: true,
       userExposed: true,
       cacheSupported: true,
-      schedulerSupported: false,
+      schedulerSupported: true,
     });
   });
 
@@ -397,13 +397,13 @@ describe("createProviderRegistry — capability gating", () => {
     expect(enabled).toEqual(["awin", "impact"]);
   });
 
-  it("neither provider advertises schedulerSupported (declared-only)", () => {
+  it("only Awin advertises schedulerSupported (v0.52.0 — impact never scheduled)", () => {
     const registry = createProviderRegistry();
     const sched = registry
       .list()
       .filter((d) => d.activation.schedulerSupported)
       .map((d) => d.providerId);
-    expect(sched).toEqual([]);
+    expect(sched).toEqual(["awin"]);
   });
 });
 
