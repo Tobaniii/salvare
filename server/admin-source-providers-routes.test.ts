@@ -174,7 +174,7 @@ describe("GET /admin/source-providers — body shape (default registry)", () => 
         previewEnabled: true,
         importEnabled: true,
         cacheSupported: true,
-        schedulerSupported: false,
+        schedulerSupported: true,
       },
     });
   });
